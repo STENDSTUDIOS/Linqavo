@@ -1,0 +1,22 @@
+name: Refresh project presentation
+on:
+  push:
+    paths:
+      - .github/workflows/presentation.yml
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update release and project description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = STENDSTUDIOS/Linqavo
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.1.0" > release.json
+          id=$(jq -r '.id' release.json)
+          curl --fail --silent --show-error "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/docs/releases/v1.1.0.md" -o notes.md
+          jq -n --rawfile body notes.md '{name:"Linqavo 1.1.0",body:$body,prerelease:false,make_latest:"true"}' > update.json
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" --input update.json > /dev/null
