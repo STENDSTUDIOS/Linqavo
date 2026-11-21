@@ -1,0 +1,32 @@
+{
+  "enrollmentVersion": 2,
+  "presenceVersion": 2,
+  "enrollmentErrors": ["ERR_PAIRING_DENIED", "ERR_CLIENT_DISABLED", "ERR_ENROLLMENT_REVOKED", "ERR_CAPACITY_REACHED", "ERR_PEER_BUSY", "ERR_SERVER_UNAVAILABLE", "ERR_FORWARDING_UNAVAILABLE"],
+  "rules": [
+    "discovery flags are unauthenticated hints and cannot prohibit a pinned TLS enrollment attempt",
+    "only a pinned TLS ERR_ENROLLMENT_REVOKED permits one fresh Windows identity generation and another explicit Android approval",
+    "disabled identities are retained; enable restores the same identity and address after canceled old flows drain",
+    "presence v2 server events are protected by WireGuard and bound to the current stream ticket; v1 client disconnect remains supported",
+    "Android blocks data flows before notifying disabled or revoked clients; a bounded control acknowledgement precedes key removal",
+    "server stop notifies current peers before WireGuard teardown; clients expire independent control and forwarded-response evidence within 35 seconds",
+    "an established tunnel or live control stream alone does not establish forwarding; recent forwarded replies survive a control-only outage",
+    "Windows keeps existing routes and WFP filters when hold-on-loss is enabled; otherwise helper shutdown closes the tunnel",
+    "While Windows waits for the next app command, its helper can independently report forwarding recovery and server Stop over the same local pipe",
+    "Windows presents a held server-unavailable session as paused while retaining its distinct unavailability reason; this does not establish forwarding or change recovery policy",
+    "revoked credentials never reactivate; a fresh identity and approval are required",
+    "three authorized records include offline and disabled clients; only explicit revocation releases a drained lease"
+  ],
+  "deviceActions": {
+    "confirmationRequired": ["disable", "revoke"],
+    "target": ["serverTlsFingerprint", "publicKey", "enrolledAt", "expectedActive"],
+    "dismissal": "no action",
+    "staleTarget": "reject without applying operation",
+    "result": "report verified success or failure"
+  },
+  "windowsTestPackage": {
+    "rootDirectory": "Linqavo",
+    "app": "Linqavo.exe",
+    "helper": "linqavo-wg.exe",
+    "firewallChanges": "none; inspect existing exact-path/profile rules read-only"
+  }
+}

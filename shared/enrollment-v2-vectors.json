@@ -1,0 +1,5 @@
+{
+ "request":{"v":2,"pair":1,"name":"PC","clientPublicKey":"hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo="},
+ "reply":{"v":2,"ok":1,"host":"192.168.1.14","port":51821,"wg":{"serverPublicKey":"hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo=","allowedIps":"0.0.0.0/0","endpointPort":51821,"dns":"1.1.1.1","clientAddress":"10.13.37.2/32"}},
+ "reject":[{"v":1,"pair":1},{"v":2,"pair":1},{"v":2,"pair":1,"clientPublicKey":"bad"},{"v":2,"pair":1,"clientPublicKey":42}]
+}

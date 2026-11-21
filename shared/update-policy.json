@@ -1,0 +1,14 @@
+{
+  "product": "Linqavo",
+  "automaticChecks": false,
+  "automaticDownloads": false,
+  "unattendedInstallation": false,
+  "trustedChannel": null,
+  "requiredBeforeChannelActivation": [
+    "explicit HTTPS origin allowlist without redirects or fallback",
+    "pinned independently provisioned metadata verification key",
+    "signed version, product, platform, architecture, digest, size and expiry",
+    "anti-rollback version and metadata sequence",
+    "trusted platform publisher identity and explicit user approval"
+  ]
+}

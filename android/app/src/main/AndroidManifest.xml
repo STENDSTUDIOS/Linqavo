@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- installLocation: without it Android defaults to internalOnly, and a phone
+     with a full internal partition then refuses the install outright with
+     "Requested internal only, but not enough space" — surfaced to the user as
+     nothing more than "App not installed". "auto" lets the system place the
+     app on adoptable storage when internal is tight, and changes nothing on a
+     phone with room.
+
+     This used to say Relay had nothing that "auto" could break. It now has a
+     home screen widget, and a widget IS removed if the app is moved to
+     adoptable storage. The trade is deliberate and it is not close: a failed
+     install stops everyone, on a phone that reports nothing more useful than
+     "App not installed", while losing a widget affects only someone who has
+     both placed one and moved the app to an SD card, and is fixed by placing
+     it again. If that ever stops being the right call, internalOnly is the
+     one-word change — and the install failure comes back with it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:installLocation="auto">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <!-- singleTop so the launcher shortcut re-uses the activity that is
+             already open instead of stacking a second copy of it behind the
+             first. onNewIntent picks the action up. -->
+        <activity
+            android:name=".MainActivity"
+            android:launchMode="singleTop"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="io.relay.fork.action.START_SHARING" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+
+
+        <receiver
+            android:name=".service.SharingWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_sharing_info" />
+        </receiver>
+
+        <!-- Sharing from the notification shade. BIND_QUICK_SETTINGS_TILE is
+             held by the system, which is what makes exported="true" correct
+             here: only the system can bind it. -->
+        <service
+            android:name=".service.SharingTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_shortcut_start"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <!-- Lets the tile be added while the phone is locked; it only ever
+                 reflects state and opens the app, never hands anything out. -->
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
+        <service
+            android:name=".service.SharingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the user-initiated local hotspot connection sharing session alive while devices are paired" />
+        </service>
+
+        <service android:name="com.wireguard.android.backend.GoBackend$VpnService" tools:node="remove" />
+        <service
+            android:name=".client.ClientVpnService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated WireGuard VPN to the local Linqavo sharing device" />
+        </service>
+        <provider
+            android:name=".client.PairingPhotoProvider"
+            android:authorities="${applicationId}.pairing-photo"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/pairing_photo_paths" />
+        </provider>
+    </application>
+
+</manifest>

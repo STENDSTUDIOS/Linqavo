@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- UI-free on purpose: everything here is unit-testable on any runner
+         and is the layer shared-contract tests run against. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Linqavo.Core</AssemblyName>
+    <RootNamespace>Linqavo.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- QR decoding lives here, not in the WinUI project, so that it can be
+         tested at all. See BgraQrDecoder for why that mattered. -->
+    <PackageReference Include="ZXing.Net" Version="0.16.10" />
+  </ItemGroup>
+
+</Project>

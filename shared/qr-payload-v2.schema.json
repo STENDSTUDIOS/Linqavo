@@ -1,0 +1,22 @@
+{
+ "$schema":"http://json-schema.org/draft-07/schema#",
+ "title":"Relay Fork secure Full Mode invitation",
+ "type":"object", "additionalProperties":false,
+ "required":["v","mode","host","port","pairingPort","tlsFingerprint","wg"],
+ "properties":{
+  "v":{"const":2},"mode":{"const":"wireguard"},
+  "host":{"type":"string","format":"ipv4"},
+  "port":{"type":"integer","minimum":1,"maximum":65535},
+  "pairingPort":{"type":"integer","minimum":1,"maximum":65535},
+  "tlsFingerprint":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+  "name":{"type":"string","maxLength":64},"issuedAt":{"type":"integer","minimum":0},
+  "wg":{"type":"object","additionalProperties":false,
+    "required":["serverPublicKey","allowedIps","endpointPort","dns"],
+    "properties":{
+      "serverPublicKey":{"type":"string","pattern":"^[A-Za-z0-9+/]{43}=$"},
+      "allowedIps":{"const":"0.0.0.0/0"},"dns":{"const":"1.1.1.1"},
+      "endpointPort":{"type":"integer","minimum":1,"maximum":65535}
+    }
+  }
+ }
+}

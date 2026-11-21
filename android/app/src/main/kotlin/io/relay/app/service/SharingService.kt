@@ -1,0 +1,1058 @@
+package io.relay.app.service
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import io.relay.app.MainActivity
+import io.relay.app.R
+import io.relay.app.core.ConnectionState
+import io.relay.app.core.ShouldRetarget
+import io.relay.app.core.UpdateCheck
+import io.relay.app.core.DirectPairingStrategy
+import io.relay.app.core.ErrorCode
+import io.relay.app.core.HandshakeWatch
+import io.relay.app.core.LinkWait
+import io.relay.app.core.QrPayload
+import io.relay.app.core.ReconnectPolicy
+import io.relay.app.core.WarningCode
+import io.relay.app.core.WgConfig
+import io.relay.app.net.LinkSnapshot
+import io.relay.app.net.LocalAddress
+import io.relay.app.core.PairingCode
+import io.relay.app.net.Beacon
+import io.relay.app.net.PairingServer
+import io.relay.app.net.VpnCapture
+import io.relay.app.net.VpnLockdown
+import io.relay.app.net.VpnStatus
+import io.relay.app.net.wg.WgForwarder
+import io.relay.app.net.wg.WgForwarderException
+import io.relay.app.net.wg.WgForwarderProvider
+import io.relay.app.net.wg.WgKeys
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import io.relay.app.core.PeerActionRequest
+import io.relay.app.core.PeerActionResult
+import java.io.IOException
+
+/**
+ * Foreground service owning the WireGuard endpoint (ADR-0003, ADR-0009). Runs with a
+ * persistent notification from the first frame; holds a partial WakeLock only
+ * while at least one client is transferring.
+ */
+class SharingService : Service() {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val pairing = DirectPairingStrategy()
+    private val peerManagement = Mutex()
+    private val trustedDevices by lazy { TrustedDevices.get(this) }
+    private val settings by lazy { Settings(this) }
+    private var beacon: Beacon? = null
+
+    /** Null when the port could not be bound, which makes this phone QR-only. */
+    private var pairingServer: PairingServer? = null
+
+    /**
+     * The code this session announces. Kept even when it is not shown, so a
+     * rebind re-announces the same number rather than drawing a new one.
+     */
+    private var pairingCode: String? = null
+
+    /** The code the UI shows — null when announcing cannot work here (see [pairingCode]). */
+    private var shortCode: String? = null
+
+    /**
+     * What actually protects a two-digit code: the person holding the phone.
+     * See /shared/pairing-beacon.md -- the code selects, the human consents.
+     */
+    private val clientGate get() = ConnectionRepository.clientGate
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var lastTrafficPush = 0L
+    private var currentHost: String? = null
+    private var hotspotWatcher: Job? = null
+    private var peerWatcher: Job? = null
+    private var startup: Job? = null
+    /** Native start and teardown must not pass each other on different threads. */
+    private val endpointLock = Any()
+
+    // The session's forwarder and this pairing's keys (ADR-0008).
+    private var wgForwarder: WgForwarder? = WgForwarderProvider.create()
+    private var wgKeys: WgConfig.KeySet? = null
+
+    /**
+     * When a PC last took a configuration, which is when a handshake starts
+     * being owed. Written on the pairing server's accept thread and read by the
+     * peer watcher's coroutine, hence volatile. See [HandshakeWatch].
+     */
+    @Volatile
+    private var configuredAtMs: Long? = null
+
+    /**
+     * Whether a PC has already taken a configuration and left the tunnel
+     * unanswered this session. Half of what the beacon's `blocked` field is
+     * built from; the other half is the lockdown setting, read fresh each time.
+     */
+    @Volatile
+    private var pcWentUnanswered = false
+
+    /**
+     * What the beacon should say about this phone's replies, asked once per
+     * datagram.
+     *
+     * Read at send time rather than captured, because both grounds appear
+     * mid-session and the broadcast is the only channel that still leaves a
+     * captured phone. See [VpnLockdown.blockedValue] and
+     * /shared/pairing-beacon.md.
+     */
+    private fun blockedForBeacon(): String? =
+        VpnLockdown.blockedValue(VpnLockdown.read(this), pcWentUnanswered)
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannel()
+        // Ordinary apps cannot subscribe to PackageManager's system-only
+        // permission listener. Recheck the actual grant while running instead.
+        // Android may also kill the process on revocation; sticky starts are
+        // guarded again in onStartCommand.
+        scope.launch {
+            while (isActive) {
+                delay(PEER_POLL_MS)
+                if (!LocalNetworkAccess.granted(this@SharingService)) {
+                    startup?.cancelAndJoin()
+                    stopSharing()
+                    return@launch
+                }
+            }
+        }
+        scope.launch {
+            // Only when something these two actually show has changed.
+            //
+            // The byte counters update once a second while connected, and every
+            // one of those used to rebuild the notification and push a fresh
+            // RemoteViews across a binder to the launcher. Neither surface
+            // displays bytes -- the notification counts devices, the widget
+            // shows the code -- so that was a cross-process round trip every
+            // second to redraw the identical pixels, on the CPU that is already
+            // the bottleneck. A user reported 2.2 as slower than 2.0 at
+            // transferring data; the widget push is what 2.2 added.
+            var shown: String? = null
+            ConnectionRepository.state.collectLatest { state ->
+                val signature = visibleSignature(state)
+                if (signature == shown) return@collectLatest
+                shown = signature
+
+                if (state !is ConnectionState.Idle) {
+                    notificationManager.notify(NOTIFICATION_ID, buildNotification(state))
+                }
+                // The widget lives in the launcher's process and cannot watch a
+                // flow, so it has to be pushed. Idle is included deliberately:
+                // the transition a widget most needs to hear about is sharing
+                // stopping.
+                SharingWidgetProvider.refresh(this@SharingService)
+            }
+        }
+
+        // Ask about a waiting computer even when nobody is looking at the app.
+        //
+        // The dialog in MainActivity only reaches someone already watching the
+        // screen, which is the opposite of the normal case: you press Connect
+        // on the laptop, because that is where you are, and the phone is face
+        // down on the desk. Before this, that request simply timed out having
+        // shown nothing at all.
+        scope.launch {
+            ConnectionRepository.clientGate.pending.collect { waiting ->
+                if (waiting == null) {
+                    ApprovalNotice.clear(this@SharingService)
+                } else {
+                    ApprovalNotice.show(this@SharingService, waiting.address, waiting.name)
+                }
+            }
+        }
+
+    }
+
+    private var ownsSharingRole = false
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!ownsSharingRole && (intent == null || intent.action == ACTION_START)) {
+            ownsSharingRole = RelayRole.acquire(RelayRole.Role.Sharing)
+            if (!ownsSharingRole) {
+                startInForeground()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
+        if (!LocalNetworkAccess.granted(this)) {
+            // Even a sticky restart or an approval PendingIntent must fail closed.
+            // Honour startForegroundService's deadline before stopping.
+            startInForeground()
+            scope.launch {
+                startup?.cancelAndJoin()
+                stopSharing()
+            }
+            return START_NOT_STICKY
+        }
+        when (intent?.action) {
+            // Null intent = START_STICKY restart after a system kill: resume sharing.
+            ACTION_START, null -> {
+                // Must be synchronous: startForegroundService() gives us a few
+                // seconds to post the notification or the process is killed.
+                startInForeground()
+                // Everything else is blocking IO — enumerating interfaces (slow
+                // with a tun up, which is Relay's normal case) and binding up to
+                // four sockets. onStartCommand runs on the main thread, so doing
+                // it here froze the UI on "Starting…" and risked an ANR.
+                if (startup?.isActive == true) return START_STICKY
+                startup = scope.launch {
+                    if (ConnectionRepository.state.value is ConnectionState.Idle) startSharing()
+                }
+            }
+            ACTION_PEER -> {
+                val key = intent.getStringExtra("peer_key") ?: return START_NOT_STICKY
+                val request = PeerActionRequest(key, intent.getStringExtra("peer_operation").orEmpty(),
+                    intent.getStringExtra("peer_session").orEmpty(), intent.getLongExtra("peer_enrolled", -1),
+                    intent.getBooleanExtra("peer_active", false))
+                if (!ConnectionRepository.beginPeerAction(key)) return START_STICKY
+                scope.launch {
+                    var name = ""
+                    var success = false
+                    try {
+                        peerManagement.withLock {
+                            synchronized(endpointLock) {
+                                val forwarder = wgForwarder
+                                val before = forwarder?.peers().orEmpty()
+                                name = before.find { it.publicKey == key }?.name.orEmpty()
+                                if (!request.matches(before, ConnectionRepository.managementSession.value)) return@synchronized
+                                if (request.operation == "disable") trustedDevices.setEnabled(key, false)
+                                if (request.operation == "revoke") trustedDevices.revoke(key)
+                                val ok = when (request.operation) {
+                                    "activate" -> forwarder?.setPeerActive(key, true)
+                                    "disable" -> forwarder?.setPeerActive(key, false)
+                                    "revoke" -> forwarder?.removePeer(key)
+                                    else -> false
+                                }
+                                val after = forwarder?.peers().orEmpty()
+                                val peer = after.find { it.publicKey == key }
+                                success = ok == true && request.serverFingerprint == ConnectionRepository.managementSession.value && when (request.operation) {
+                                    "revoke" -> peer == null
+                                    "activate" -> peer?.active == true
+                                    "disable" -> peer?.active == false
+                                    else -> false
+                                }
+                                ConnectionRepository.publishPeers(after)
+                                if (success && request.operation == "activate") trustedDevices.setEnabled(key, true)
+                                if (LifecycleTrace.enabled) LifecycleTrace.event(
+                                    "server", LifecycleTrace.id(wgKeys?.serverPublicKey.orEmpty()), LifecycleTrace.id(key),
+                                    "event=peer-action action=${request.operation} success=$success",
+                                )
+                            }
+                        }
+                    } catch (_: java.io.IOException) {
+                        success = false
+                    } finally {
+                        if (!success) LocalLog.warn(LocalLog.Area.TUNNEL, "Peer operation refused or stale")
+                        ConnectionRepository.finishPeerAction(PeerActionResult(request, name, success))
+                    }
+                }
+            }
+            ACTION_STOP -> {
+                if (ownsSharingRole) stopSharing(startId)
+                else stopSelfResult(startId)
+            }
+            ACTION_ALLOW_CLIENT, ACTION_DENY_CLIENT -> {
+                val address = intent.getStringExtra(EXTRA_CLIENT_ADDRESS)
+                if (address != null) {
+                    ConnectionRepository.clientGate.resolve(
+                        address,
+                        allowed = intent.action == ACTION_ALLOW_CLIENT,
+                    )
+                }
+                ApprovalNotice.clear(this)
+            }
+        }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        teardown()
+        // A destroy without user stop (system kill) leaves state consistent:
+        ConnectionRepository.dispatch("stop") { ConnectionState.Idle }
+        scope.cancel()
+        if (ownsSharingRole) RelayRole.release(RelayRole.Role.Sharing)
+        super.onDestroy()
+    }
+
+    // --- lifecycle steps -----------------------------------------------------
+
+    private fun startInForeground() {
+        val type = if (Build.VERSION.SDK_INT >= 34) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            0
+        }
+        ServiceCompat.startForeground(
+            this, NOTIFICATION_ID, buildNotification(ConnectionRepository.state.value), type,
+        )
+    }
+
+    private suspend fun startSharing() {
+        if (!LocalNetworkAccess.granted(this)) { stopSharing(); return }
+        if (!ConnectionRepository.dispatch("start") { ConnectionState.Preparing }) return
+        // Recorded on every start, whether or not anything goes wrong. It is the
+        // one fact that explains a whole category of reports -- a PC that finds
+        // the phone and never hears back -- and by the time someone is asking
+        // about it, they are being asked to go and look at a settings screen
+        // and report what they saw. This is that answer, already in the log.
+        val vpnActive = VpnStatus.isVpnActive(this)
+        LocalLog.info(
+            LocalLog.Area.SERVICE, "Starting sharing",
+            "vpn" to vpnActive.toString(),
+            // Not the same question: a VPN can be up while Relay is excluded
+            // from it. Kept for diagnosing VPN interference with local replies.
+            "relay_in_vpn" to VpnStatus.isRelayInsideVpn(this).toString(),
+            "lockdown" to VpnLockdown.describe(VpnLockdown.read(this)),
+        )
+        ConnectionRepository.clearWarnings()
+
+        // Works on the phone's hotspot, a shared Wi-Fi/LAN, or a USB cable.
+        val host = awaitAdvertisableIpv4()
+        if (!LocalNetworkAccess.granted(this)) { stopSharing(); return }
+        if (host == null) {
+            // The links themselves, not just the conclusion. A report saying
+            // only "no usable link" cannot tell a cable that is not plugged in
+            // from one whose tethering is off from one that is still getting an
+            // address -- three faults, three different things to tell someone,
+            // and answering that used to take a message to the user and a day.
+            // Taken once and used twice: the same look at the phone's links
+            // decides both what the log records and which of the four failures
+            // this is. Two looks could disagree, and a message that contradicts
+            // the log underneath it is worse than either alone.
+            val links = LinkSnapshot.take()
+            val code = LinkSnapshot.diagnose(links)
+            LocalLog.error(
+                LocalLog.Area.LINK, "No usable Wi-Fi, hotspot or USB link",
+                "code" to code.name,
+                "waited_ms" to LinkWait.totalBoundMs.toString(),
+                "looks" to LinkWait.looks.toString(),
+                "vpn" to VpnStatus.isVpnActive(this).toString(),
+                "links" to LinkSnapshot.summarise(links),
+            )
+            fail(code)
+            return
+        }
+
+        // One transport since ADR-0009. Preparation dispatches its own error.
+        val payload = prepareFull(host) ?: return
+        // Native startup is blocking; cancellation may have arrived during it.
+        val starting = kotlinx.coroutines.currentCoroutineContext()
+        synchronized(endpointLock) {
+            starting.ensureActive()
+            if (!LocalNetworkAccess.granted(this)) { stopSharing(); return }
+
+            currentHost = host
+            noteReplyPath(host)
+
+            // Drawn once per sharing session and kept for its life, so the number on
+            // screen never changes under someone who is mid-way through typing it.
+            //
+            // Drawn blind: surveying the network for codes already in use would
+            // block this thread for over a second, and this runs on the main thread
+            // from onStartCommand. A collision is rare and already has an answer --
+            // the PC shows both device names and asks which one -- so paying an ANR
+            // risk to make it rarer is the wrong trade.
+            val code = PairingCode.draw()
+            val announcer = Beacon(
+                code = code,
+                mode = payload.mode,
+                host = payload.host,
+                port = payload.port,
+                deviceName = payload.name,
+                pairingPort = pairingServer?.boundPort,
+                blocked = ::blockedForBeacon,
+            ).also { it.start() }
+            beacon = announcer
+
+            // Only show the two digits if they can actually be found. They carry no
+            // address of their own, so on a network where this phone can neither
+            // broadcast nor answer a probe they are a dead end: the PC searches for
+            // them forever and the person is left comparing two screens that look
+            // right. Withholding the short code makes the UI fall back to the
+            // eight-character code, which describes the address itself and needs no
+            // discovery — and makes the PC's "my phone shows a longer code" link
+            // true rather than aspirational.
+            val announced = announcer.canAnnounce
+            pairingCode = code
+            shortCode = code.takeIf { announced }
+            if (announced) {
+                LocalLog.info(LocalLog.Area.PAIRING, "Pairing code issued", "code" to code)
+            } else {
+                LocalLog.warn(
+                    LocalLog.Area.PAIRING,
+                    "Cannot announce on this network; showing the 8-character code instead",
+                    "code" to code,
+                )
+            }
+
+            ConnectionRepository.dispatch("ready") {
+                ConnectionState.Advertising(payload, pairing.issueTypedCode(payload), shortCode)
+            }
+            startHotspotWatcher()
+        }
+    }
+
+    /** Full Mode: mint per-pairing keys, start the userspace WG endpoint, return its wireguard payload. */
+    private suspend fun prepareFull(host: String): QrPayload? {
+        val forwarder = wgForwarder
+        if (forwarder == null) {
+            LocalLog.error(LocalLog.Area.TUNNEL, "No WireGuard forwarder in this build")
+            fail(ErrorCode.WG_START_FAILED)
+            return null
+        }
+        val keys = WgKeys.generate()
+        val starting = kotlinx.coroutines.currentCoroutineContext()
+        return synchronized(endpointLock) {
+            starting.ensureActive()
+            if (!LocalNetworkAccess.granted(this)) { stopSharing(); return null }
+            try {
+                forwarder.start(WgConfig.serverConfig(keys))
+            } catch (e: WgForwarderException) {
+                LocalLog.error(
+                    LocalLog.Area.TUNNEL, "The WireGuard endpoint would not start",
+                    "error" to (e.message ?: "no message"),
+                )
+                fail(ErrorCode.WG_START_FAILED)
+                return null
+            }
+            starting.ensureActive()
+            if (!LocalNetworkAccess.granted(this)) { stopSharing(); return null }
+            LocalLog.info(LocalLog.Area.TUNNEL, "Forwarding through the phone default network")
+            if (!forwarder.setCapacity(settings.maximumClients)) { forwarder.stop(); fail(ErrorCode.WG_START_FAILED); return null }
+            val saved = try {
+                trustedDevices.devices.value
+            } catch (_: Exception) {
+                forwarder.stop()
+                fail(ErrorCode.WG_START_FAILED)
+                return null
+            }
+            if (saved.take(settings.maximumClients).any { device ->
+                    forwarder.enrollPeer(device.publicKey, device.name) == null ||
+                        (!device.enabled && !forwarder.setPeerActive(device.publicKey, false))
+                }) {
+                forwarder.stop()
+                fail(ErrorCode.WG_START_FAILED)
+                return null
+            }
+            wgKeys = keys
+            LocalLog.info(
+                LocalLog.Area.TUNNEL, "WireGuard endpoint up",
+                "host" to host, "port" to keys.endpointPort.toString(),
+            )
+            startPeerWatcher(forwarder)
+            startPairingServer()
+            if (pairingServer == null) { forwarder.stop(); fail(ErrorCode.WG_START_FAILED); return null }
+            return pairing.issuePayload(
+                mode = QrPayload.MODE_WIREGUARD, host = host, port = keys.endpointPort,
+                deviceName = "Linqavo", wg = WgConfig.toWgParams(keys),
+            ).copy(v = 2, pairingPort = pairingServer?.boundPort, tlsFingerprint = pairingServer?.fingerprint)
+        }
+    }
+
+    /**
+     * Looks for an advertisable address, giving a link that is still coming up
+     * a few seconds to appear. See [LinkWait] for why, and for the report that
+     * showed what failing instantly felt like.
+     *
+     * The first look is immediate, so a phone already on Wi-Fi pays nothing.
+     * Only a phone that would previously have failed waits at all — and waiting
+     * is what it should have been doing.
+     */
+    private suspend fun awaitAdvertisableIpv4(): String? {
+        var waited = 0L
+        for (delayMs in LinkWait.lookDelaysMs) {
+            if (delayMs > 0) {
+                delay(delayMs)
+                waited += delayMs
+            }
+            val host = LocalAddress.findAdvertisableIpv4()
+            if (host != null) {
+                // Only worth a line when waiting actually did something. On the
+                // common path this says nothing at all.
+                if (waited > 0) {
+                    LocalLog.info(
+                        LocalLog.Area.LINK, "A usable link appeared",
+                        "waited_ms" to waited.toString(), "host" to host,
+                    )
+                }
+                return host
+            }
+        }
+        return null
+    }
+
+    /**
+     * Writes the reply path into the diagnostic log at the moment sharing
+     * starts, before any PC is involved.
+     *
+     * This does **not** raise the warning banner, deliberately. The same probe
+     * has been seen to say "swallowed" on a link that then carried 35 MB
+     * without trouble, so acting on it would put an alarming message in front
+     * of people whose connection is working. What it is good for is triage: it
+     * costs one route lookup, and it means a diagnostic report carries the
+     * answer even when the session never got far enough to produce one.
+     *
+     * The warning itself still comes from the pairing path, where a real client
+     * address is known — see [startPairingServer].
+     */
+    private fun noteReplyPath(host: String) {
+        val peer = VpnCapture.aPeerOn(host) ?: return
+        val swallowed = VpnCapture.wouldSwallow(client = peer, advertisedHost = host)
+        LocalLog.info(
+            LocalLog.Area.LINK, "Reply path checked before any PC asked",
+            "probe" to peer,
+            "advertised" to host,
+            "verdict" to if (swallowed) "would-leave-by-vpn" else "leaves-by-the-link",
+        )
+    }
+
+    /**
+     * Opens the port a laptop asks on when it has only two digits and no camera
+     * (ADR-0009). Best effort by design: a phone that cannot bind it is still a
+     * phone you can pair by QR, so the beacon simply omits `pairingPort` and the
+     * PC says to scan — which is true — rather than reporting a correct code as
+     * invalid.
+     */
+    private fun startPairingServer() {
+        pairingServer?.stop()
+        val generation = wgKeys
+        val server = PairingServer(
+            preferredPort = PairingServer.DEFAULT_PORT,
+            gate = clientGate,
+            alreadyInstalled = { key -> synchronized(endpointLock) {
+                wgKeys === generation && wgForwarder?.peers()?.any { it.publicKey == key && it.active } == true
+            } },
+            enroll = { key, name -> synchronized(endpointLock) {
+                if (wgKeys !== generation || generation == null) return@synchronized null
+                val endpoint = wgForwarder ?: return@synchronized null
+                val newPeer = endpoint.peers().none { it.publicKey == key }
+                if (trustedDevices.retired(key)) return@synchronized null
+                val lease = endpoint.enrollPeer(key, name) ?: return@synchronized null
+                if (newPeer) try {
+                    trustedDevices.remember(key, name)
+                } catch (_: Exception) {
+                    endpoint.removePeer(key)
+                    return@synchronized null
+                }
+                lease
+            } },
+            enrollmentError = { key -> when {
+                trustedDevices.retired(key) -> "ERR_ENROLLMENT_REVOKED"
+                trustedDevices.devices.value.any { it.publicKey == key && !it.enabled } -> "ERR_CLIENT_DISABLED"
+                else -> wgForwarder?.enrollmentError(key) ?: "ERR_FORWARDING_UNAVAILABLE"
+            } },
+            // Read at approval time, not captured: a rebind onto a new hotspot
+            // address mid-session would otherwise send the laptop to where this
+            // phone used to be.
+            configuration = { client ->
+                val keys = wgKeys
+                val host = currentHost
+                // A PC only reaches this line because someone pressed Connect on
+                // it, so from this instant a handshake is owed. [startPeerWatcher]
+                // holds the other half of the check: if none arrives within
+                // HandshakeWatch.GRACE_MS, replies are not leaving this phone,
+                // and that is an observation rather than the prediction this
+                // used to raise a banner on. See [HandshakeWatch].
+                configuredAtMs = System.currentTimeMillis()
+                // Log-only, for the same reason as the one at start-up: the probe
+                // has been seen to say "swallowed" on a link that then carried a
+                // pairing and 35 MB of traffic, so it is worth having in a report
+                // and not worth alarming anyone with.
+                if (host != null) {
+                    val swallowed = VpnCapture.wouldSwallow(client = client, advertisedHost = host)
+                    LocalLog.info(
+                        LocalLog.Area.LINK, "Reply path checked for the PC that asked",
+                        "pc" to client,
+                        "advertised" to host,
+                        "verdict" to if (swallowed) "would-leave-by-vpn" else "leaves-by-the-link",
+                    )
+                }
+                if (keys == null || host == null) null
+                else PairingServer.Configuration(
+                    host = host,
+                    port = keys.endpointPort,
+                    wg = WgConfig.toWgParams(keys),
+                )
+            },
+        )
+        pairingServer = try {
+            server.start()
+            ConnectionRepository.enrollmentFingerprint.value = server.fingerprint
+            ConnectionRepository.managementSession.value = server.sessionId
+            LocalLog.info(
+                LocalLog.Area.PAIRING, "Pairing by code available",
+                "port" to server.boundPort.toString(),
+            )
+            server
+        } catch (e: Exception) {
+            LocalLog.warn(
+                LocalLog.Area.PAIRING, "Pairing port busy; this phone is QR-only",
+                "error" to (e.message ?: "no message"),
+            )
+            null
+        }
+    }
+
+    /**
+     * Turns the tunnel's handshake into the "a PC is here" signal that drives
+     * the screen, the wake lock and the notification. Native presence is
+     * independent from authorization and historical handshakes (ADR-0015).
+     */
+    private fun startPeerWatcher(forwarder: WgForwarder) {
+        peerWatcher?.cancel()
+        peerWatcher = scope.launch {
+            var lastCount = -1
+            var saidNoReply = false
+            // Which of the two no-reply warnings went up, so the right one comes
+            // down. They are separate codes because the log should record which
+            // message the user was actually shown.
+            var raised: WarningCode? = null
+            var previousTrace = emptyMap<String, io.relay.app.core.PeerSnapshot>()
+            var traceAt = 0L
+            while (isActive) {
+                delay(PEER_POLL_MS)
+                val peers = forwarder.peers()
+                val connectedCount = ConnectionRepository.publishPeers(peers)
+                if (LifecycleTrace.enabled) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime()
+                    val session = LifecycleTrace.id(wgKeys?.serverPublicKey.orEmpty())
+                    for (peer in peers) {
+                        val before = previousTrace[peer.publicKey]
+                        if (elapsed >= traceAt || before?.status != peer.status || before?.controlState != peer.controlState) {
+                            val age = if (peer.lastHandshake == 0L) -1 else
+                                (System.currentTimeMillis() / 1000 - peer.lastHandshake).coerceAtLeast(0)
+                            LifecycleTrace.event("server", session, LifecycleTrace.id(peer.publicKey),
+                                "event=snapshot state=${peer.status} control=${peer.controlState} hsAgeSec=$age " +
+                                    "fwdAgeMs=${peer.forwardingAgeMs} rxDelta=${peer.bytesReceived - (before?.bytesReceived ?: 0)} " +
+                                    "txDelta=${peer.bytesSent - (before?.bytesSent ?: 0)} uiCount=$connectedCount")
+                        }
+                    }
+                    previousTrace = peers.associateBy { it.publicKey }
+                    if (elapsed >= traceAt) traceAt = elapsed + 5_000
+                }
+                val handshake = peers.filter { it.active }.maxOfOrNull { it.lastHandshake } ?: 0L
+
+                // The one fault the phone can see that the laptop can only
+                // guess at: a PC asked for the settings and the endpoint was
+                // never handshaked, so the replies are not getting out. The
+                // laptop reaches its own verdict at the same moment and its
+                // message promises this banner is here, so it has to be.
+                val noReply = HandshakeWatch.replyLost(
+                    configuredAtMs = configuredAtMs,
+                    lastHandshakeUnix = handshake,
+                    nowMs = System.currentTimeMillis(),
+                )
+                // Raised on the edge, not every tick. Pushing it once a second
+                // would put the banner back a second after anyone dismissed it,
+                // which is the whole of the dismiss button's job.
+                // Told to the beacon as well as to this phone's own screen. A
+                // capture severe enough to stop the pairing means the phone
+                // never learns a PC tried -- but a phone that got this far did
+                // learn, and the broadcast still leaves.
+                pcWentUnanswered = noReply
+                if (noReply != saidNoReply) {
+                    saidNoReply = noReply
+                    if (noReply) {
+                        // Read only now, not every tick: the fault is already
+                        // established, and this decides nothing except how
+                        // precisely Relay is allowed to describe it.
+                        val lockdown = VpnLockdown.read(this@SharingService)
+                        val code = VpnLockdown.warningFor(lockdown)
+                        raised = code
+                        ConnectionRepository.setWarning(code, true)
+                        LocalLog.warn(
+                            LocalLog.Area.TUNNEL,
+                            "A PC took the settings and the tunnel never handshaked; " +
+                                "replies are not leaving this phone",
+                            "waited_s" to (HandshakeWatch.GRACE_MS / 1000).toString(),
+                            "vpn" to VpnStatus.isVpnActive(this@SharingService).toString(),
+                            "lockdown" to VpnLockdown.describe(lockdown),
+                            "shown" to code.name,
+                        )
+                    } else {
+                        raised?.let { ConnectionRepository.setWarning(it, false) }
+                        raised = null
+                    }
+                }
+                val nowPresent = connectedCount > 0
+                // Reconcile every snapshot, including a same-count snapshot
+                // after re-advertising; a cached count must not freeze the UI.
+                if (lastCount != connectedCount) {
+                    lastCount = connectedCount
+                    LocalLog.info(LocalLog.Area.TUNNEL, "Connected client count changed", "clients" to connectedCount.toString())
+                }
+                if (nowPresent || peers.any { it.status == "reconnecting" }) acquireWakeLock() else releaseWakeLock()
+                if (nowPresent) {
+                    // Named from the phone's side: what the laptop sent up is
+                    // what this endpoint received.
+                    onTraffic(
+                        bytesUp = peers.sumOf { it.bytesReceived },
+                        bytesDown = peers.sumOf { it.bytesSent },
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Watches for the hotspot interface disappearing while sharing and drives
+     * the bounded reconnect policy (ADR-0007): a brief drop is absorbed
+     * silently; only exhausting the budget surfaces HOTSPOT_LOST.
+     */
+    private fun startHotspotWatcher() {
+        hotspotWatcher?.cancel()
+        hotspotWatcher = scope.launch {
+            while (isActive) {
+                delay(HOTSPOT_POLL_MS)
+                if (!LocalNetworkAccess.granted(this@SharingService)) {
+                    stopSharing()
+                    return@launch
+                }
+                val state = ConnectionRepository.state.value
+                if (state !is ConnectionState.Advertising && state !is ConnectionState.Connected) continue
+
+                val host = LocalAddress.findAdvertisableIpv4()
+                if (host != null) {
+                    // A *better* way out can appear mid-session, which is exactly
+                    // what the cable offer invites someone to do: "Turn on USB
+                    // tethering" while already sharing. The beacon picks it up on
+                    // its own — it rebuilds its links every tick — but the QR and
+                    // the address in Advanced are fixed at the payload, so
+                    // without this a laptop that scans the QR over the new cable
+                    // is handed the Wi-Fi address it has no route to.
+                    if (ShouldRetarget.now(advertised = currentHost, best = host, connected = state is ConnectionState.Connected)) {
+                        LocalLog.info(
+                            LocalLog.Area.LINK, "A better address appeared",
+                            "host" to host,
+                            "links" to LinkSnapshot.summarise(LinkSnapshot.take()),
+                        )
+                        rebind(host)
+                    }
+                    continue
+                }
+                if (!runReconnect()) return@launch // exhausted → Error, stop watching
+            }
+        }
+    }
+
+    /** Returns true when the hotspot came back (session restored), false when the budget was exhausted. */
+    private suspend fun runReconnect(): Boolean {
+        LocalLog.warn(
+            LocalLog.Area.LINK, "The link dropped; reconnecting",
+            "links" to LinkSnapshot.summarise(LinkSnapshot.take()),
+        )
+        ConnectionRepository.annotateReconnecting(true)
+        for ((attempt, wait) in ReconnectPolicy.attemptDelaysMs.withIndex()) {
+            delay(wait)
+            val host = LocalAddress.findAdvertisableIpv4()
+            if (host != null) {
+                LocalLog.info(
+                    LocalLog.Area.LINK, "The link came back",
+                    "attempt" to (attempt + 1).toString(),
+                )
+                ConnectionRepository.annotateReconnecting(false)
+                if (host != currentHost) rebind(host)
+                return true
+            }
+        }
+        LocalLog.error(
+            LocalLog.Area.LINK, "Reconnect budget exhausted",
+            "links" to LinkSnapshot.summarise(LinkSnapshot.take()),
+        )
+        fail(ErrorCode.HOTSPOT_LOST)
+        return false
+    }
+
+    /**
+     * Hotspot returned on a different IP: re-advertise.
+     *
+     * Nothing has to be rebound. The endpoint listens on a UDP port regardless
+     * of which interface carries it, and so does the pairing port, so both stay
+     * up and the keys are unchanged — only the address being advertised moves.
+     */
+    private fun rebind(host: String) {
+        currentHost = host
+        val keys = wgKeys ?: return
+        LocalLog.info(
+            LocalLog.Area.TUNNEL, "Re-advertising WireGuard",
+            "host" to host, "port" to keys.endpointPort.toString(),
+        )
+        val payload = pairing.issuePayload(
+            mode = QrPayload.MODE_WIREGUARD, host = host, port = keys.endpointPort,
+            deviceName = "Linqavo", wg = WgConfig.toWgParams(keys),
+        ).copy(v = 2, pairingPort = pairingServer?.boundPort, tlsFingerprint = pairingServer?.fingerprint)
+        // The beacon was built with the address the phone had a moment ago, and
+        // it carries that address in every datagram. Left alone it goes on
+        // announcing an address nothing answers at, so a PC that finds the code
+        // connects to the old IP and fails with no visible cause. Restart it on
+        // the new one, keeping the code: the number on screen must not change
+        // under someone who is part-way through typing it.
+        val code = pairingCode
+        if (code != null) {
+            beacon?.stop()
+            val announcer = Beacon(
+                code = code,
+                mode = payload.mode,
+                host = payload.host,
+                port = payload.port,
+                deviceName = payload.name,
+                // The pairing server survives a rebind — it listens on a port,
+                // not on an address — so it keeps announcing the same one.
+                pairingPort = pairingServer?.boundPort,
+                blocked = ::blockedForBeacon,
+            ).also { it.start() }
+            beacon = announcer
+            // The new network may be able to carry the announcement where the
+            // old one could not, or the other way round. Re-ask rather than
+            // keeping an answer that was true of a network we have left.
+            shortCode = code.takeIf { announcer.canAnnounce }
+            if (announcer.canAnnounce) {
+                LocalLog.info(
+                    LocalLog.Area.PAIRING, "Re-announcing on the new network",
+                    "code" to code, "host" to payload.host, "port" to payload.port.toString(),
+                )
+            } else {
+                LocalLog.warn(
+                    LocalLog.Area.PAIRING,
+                    "Cannot announce on this network; showing the 8-character code instead",
+                    "code" to code, "host" to payload.host,
+                )
+            }
+        }
+
+        // Present the fresh payload in place; the client count (if any) is stale
+        // after a rebind, so drop back to Advertising until a client reconnects.
+        ConnectionRepository.reissue(payload, pairing.issueTypedCode(payload), shortCode)
+    }
+
+    /**
+     * Surfaces [code] and shuts the service down.
+     *
+     * Setting the Error state alone used to leave a *running foreground service*
+     * behind an ongoing, non-dismissible "Sharing stopped" notification: the user
+     * dismissed the error in the app, the UI went back to Idle, and the
+     * notification stayed pinned to the shade forever with no way to remove it
+     * short of force-stopping the app. The Error state itself lives in
+     * [ConnectionRepository], which outlives the service, so the app still shows
+     * the error after the service is gone.
+     */
+    private fun fail(code: ErrorCode) {
+        teardown()
+        ConnectionRepository.dispatch("failure") { ConnectionState.Error(code) }
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun stopSharing(startId: Int? = null) {
+        teardown()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        // An old Stop intent must not destroy a service with a newer
+        // foreground Start waiting for delivery.
+        if (startId == null) stopSelf() else stopSelfResult(startId)
+        ConnectionRepository.dispatch("stop") { ConnectionState.Idle }
+    }
+
+    private fun teardown() = synchronized(endpointLock) {
+        startup?.cancel()
+        hotspotWatcher?.cancel()
+        hotspotWatcher = null
+        // Announce the stop so a PC drops this phone at once rather than waiting
+        // out the staleness window, then forget who was approved: those answers
+        // were about this network, and the next session may be a different one.
+        // Direct, not through this scope: teardown often runs while the scope
+        // is already being cancelled, and a launch there would never execute --
+        // leaving the beacon broadcasting after the user pressed Stop.
+        beacon?.stop()
+        beacon = null
+        // Stop offering configurations before the keys they describe are
+        // discarded, or a laptop could be handed a tunnel that no longer exists.
+        pairingServer?.stop()
+        pairingServer = null
+        pairingCode = null
+        shortCode = null
+        clientGate.reset()
+        // Full Mode: stop watching before stopping the endpoint, or the next
+        // tick reads a torn-down session and pushes a state change after the
+        // service has already said it is idle.
+        peerWatcher?.cancel()
+        peerWatcher = null
+        // Stop the endpoint and drop the per-pairing keys (§4.2).
+        if (LifecycleTrace.enabled) LifecycleTrace.event(
+            "server", LifecycleTrace.id(wgKeys?.serverPublicKey.orEmpty()), "-", "event=stop-request",
+        )
+        runCatching { wgForwarder?.stop() }
+        ConnectionRepository.peers.value = emptyList()
+        wgKeys = null
+        ConnectionRepository.enrollmentFingerprint.value = null
+        ConnectionRepository.managementSession.value = null
+        ConnectionRepository.pendingPeerActions.value = emptySet()
+        currentHost = null
+        // Nobody is owed a handshake once there is no endpoint to give them one.
+        configuredAtMs = null
+        pcWentUnanswered = false
+        releaseWakeLock()
+        ConnectionRepository.clearWarnings()
+    }
+
+    // --- what the tunnel reports ---------------------------------------------
+
+    private fun onTraffic(bytesUp: Long, bytesDown: Long) {
+        // Throttle: at most one state push per second.
+        val now = System.currentTimeMillis()
+        if (now - lastTrafficPush < 1000) return
+        lastTrafficPush = now
+        ConnectionRepository.dispatch("clientCountChanged") { current ->
+            (current as ConnectionState.Connected).copy(bytesUp = bytesUp, bytesDown = bytesDown)
+        }
+    }
+
+    // --- wake lock (held only during active transfer, ADR-0003) --------------
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "relay:transfer")
+            .apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+        wakeLock = null
+    }
+
+    // --- notification ---------------------------------------------------------
+
+    private val notificationManager: NotificationManager
+        get() = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    private fun createChannel() {
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel),
+                NotificationManager.IMPORTANCE_LOW,
+            )
+        )
+    }
+
+    /**
+     * Everything the notification and the widget can actually display, and
+     * nothing else. Two states with the same signature look identical on
+     * screen, so redrawing between them is work with no observer.
+     *
+     * Deliberately excludes bytesUp and bytesDown: they change every second and
+     * neither surface shows them.
+     */
+    private fun visibleSignature(state: ConnectionState): String = when (state) {
+        is ConnectionState.Idle -> "idle"
+        is ConnectionState.Preparing -> "preparing"
+        is ConnectionState.Advertising -> "advertising:${state.shortCode}:${state.reconnecting}"
+        is ConnectionState.Connected ->
+            "connected:${state.shortCode}:${state.clientCount}:${state.reconnecting}"
+        is ConnectionState.Error -> "error:${state.code}"
+    }
+
+    private fun buildNotification(state: ConnectionState): Notification {
+        val text = when (state) {
+            is ConnectionState.Idle, ConnectionState.Preparing -> getString(R.string.notification_starting)
+            is ConnectionState.Advertising ->
+                if (state.reconnecting) getString(R.string.notification_reconnecting)
+                else getString(R.string.notification_waiting)
+            is ConnectionState.Connected ->
+                if (state.reconnecting) getString(R.string.notification_reconnecting)
+                else resources.getQuantityString(
+                    R.plurals.notification_connected, state.clientCount, state.clientCount,
+                )
+            is ConnectionState.Error -> getString(R.string.notification_error)
+        }
+        val openApp = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val stop = PendingIntent.getService(
+            this, 1,
+            Intent(this, SharingService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(text)
+            .setContentIntent(openApp)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .addAction(0, getString(R.string.action_stop), stop)
+            .build()
+    }
+
+    companion object {
+        const val ACTION_PEER = "io.relay.fork.action.PEER"
+        fun peerAction(context: Context, request: PeerActionRequest) {
+            context.startService(Intent(context, SharingService::class.java).setAction(ACTION_PEER)
+                .putExtra("peer_key", request.publicKey).putExtra("peer_operation", request.operation)
+                .putExtra("peer_session", request.serverFingerprint).putExtra("peer_enrolled", request.enrolledAt)
+                .putExtra("peer_active", request.expectedActive))
+        }
+
+        const val ACTION_START = "io.relay.fork.action.START"
+        const val ACTION_STOP = "io.relay.fork.action.STOP"
+
+        /** Answers to the approval notification, carrying the address asked about. */
+        const val ACTION_ALLOW_CLIENT = "io.relay.fork.action.ALLOW_CLIENT"
+        const val ACTION_DENY_CLIENT = "io.relay.fork.action.DENY_CLIENT"
+        const val EXTRA_CLIENT_ADDRESS = "io.relay.app.extra.CLIENT_ADDRESS"
+        const val CHANNEL_ID = "sharing"
+        const val NOTIFICATION_ID = 1
+        const val HOTSPOT_POLL_MS = 2000L
+        const val PEER_POLL_MS = 1000L
+
+
+        fun start(context: Context) {
+            if (!LocalNetworkAccess.granted(context)) return
+            context.startForegroundService(
+                Intent(context, SharingService::class.java).setAction(ACTION_START)
+            )
+        }
+
+        fun stop(context: Context) {
+            if (RelayRole.active.value != RelayRole.Role.Sharing) return
+            context.startService(
+                Intent(context, SharingService::class.java).setAction(ACTION_STOP)
+            )
+        }
+    }
+}

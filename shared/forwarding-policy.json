@@ -1,0 +1,21 @@
+{
+  "egress": "phone-default-network",
+  "outboundProxy": false,
+  "proxyDiscovery": false,
+  "vpnRequired": false,
+  "forwardedProtocols": ["tcp", "udp", "dns-over-tcp", "dns-over-udp"],
+  "maximumIndependentPeers": 3,
+  "security": {
+    "enrollmentProtocol": 2,
+    "transport": "wireguard",
+    "clientPrivateKeysStayOnClients": true,
+    "peerIsolationAndFlowLimits": true
+  },
+  "notes": [
+    "Direct sockets follow Android routing for Relay's UID; no cellular binding or VPN bypass is promised.",
+    "The local Wi-Fi/hotspot/USB link carries the encrypted client tunnel; Internet egress is the phone's selected route.",
+    "Retired proxy/VPN-required preferences are removed and cannot choose an egress.",
+    "A default-network change affects new sockets; existing flows may require application reconnect.",
+    "No operator tethering-limit bypass is claimed."
+  ]
+}

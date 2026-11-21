@@ -1,0 +1,20 @@
+{
+ "protocol":2,
+ "defaultCapacity":3,
+ "minimumCapacity":1,
+ "maximumCapacity":3,
+ "serverAddress":"10.13.37.1",
+ "leases":["10.13.37.2/32","10.13.37.3/32","10.13.37.4/32"],
+ "states":["authorized","connected","reconnecting","offline","unknown","disabled"],
+ "identity":"canonical client WireGuard public key",
+ "rules":[
+  "one Android endpoint; live peer IPC changes never replace other peers",
+  "one unique lease per key; repeated enrollment is idempotent and cannot rename or reactivate a disabled peer",
+  "only Android can activate, disable or revoke a peer",
+  "revocation removes the WireGuard key and blocks reenrollment for this session",
+  "revoked leases are reusable only after old flow reservations drain",
+  "capacity counts all authorized records, including disabled/offline clients",
+  "presence follows peer-presence.json; authorization and historical handshakes alone never prove current connectivity",
+  "changing the Android capacity setting requires stopping sharing"
+ ]
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Relay Fork pairing invitations",
+  "description": "Full Mode v2 uses pinned TLS enrollment. Unsafe Full Mode v1 is rejected. Fast Mode v1 remains legacy only.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "mode",
+        "host",
+        "port"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1,
+          "description": "Payload schema version. Clients reject values they do not support."
+        },
+        "mode": {
+          "const": "socks5"
+        },
+        "host": {
+          "type": "string",
+          "format": "ipv4",
+          "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$",
+          "description": "Android hotspot gateway IP the client connects to."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Listening port on the phone (SOCKS5 port in Fast Mode; informational in Full Mode, see wg.endpointPort)."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Optional friendly device label shown in the client UI."
+        },
+        "issuedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix seconds at generation time. Informational in v1; reserved for expiry in a future pairing strategy."
+        }
+      }
+    },
+    {
+      "$ref": "qr-payload-v2.schema.json"
+    }
+  ]
+}

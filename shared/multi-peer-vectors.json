@@ -1,0 +1,5 @@
+{
+ "leases":[{"ordinal":0,"address":"10.13.37.2/32"},{"ordinal":1,"address":"10.13.37.3/32"},{"ordinal":2,"address":"10.13.37.4/32"}],
+ "invalidLeases":["10.13.37.1/32","10.13.37.2/24","10.13.37.5/32","10.13.37.3/32\nprivate_key=bad"],
+ "operations":["enroll","activate","disable","revoke-remove"]
+}

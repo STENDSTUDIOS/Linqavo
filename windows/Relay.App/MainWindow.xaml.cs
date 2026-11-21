@@ -1,0 +1,1726 @@
+using System.Linq;
+using System.Runtime.InteropServices;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Linqavo.App.Services;
+using Linqavo.Core;
+using Windows.Graphics;
+using Windows.Graphics.Imaging;
+
+namespace Linqavo.App;
+
+/// <summary>
+/// The Windows dashboard and its read-only tray status window share a single session.
+    /// </summary>
+public sealed partial class MainWindow : Window
+{
+    private StatusWindow? _mini;
+    private TaskCompletionSource<bool>? _verification;
+    private bool _ringsPulsing;
+    private bool _positioned;
+    private readonly AppController _controller = AppController.Instance;
+
+    /// <summary>
+    /// Listens for phones announcing themselves, so a two-digit code can be
+    /// resolved to an address. Started once and left running: discovery has to
+    /// already know about a phone by the time someone finishes typing, and a
+    /// listener that starts when the box opens would find nothing for a second.
+    /// </summary>
+    private readonly LanDiscovery _discovery = new();
+    private CameraQrScanner? _scanner;
+    private long _lastPreviewTicks;
+    private enum InputMode { None, Scanning, Code, Pairing }
+    private InputMode _mode = InputMode.None;
+    private string? _localError;
+    private FrameworkElement? _visiblePanel;
+    private string? _errorAction;
+    private bool _shown;
+
+    /// <summary>Kept so the window can stop floating once it stops being transient.</summary>
+    private OverlappedPresenter? _presenter;
+
+    /// <summary>Live counters for the connected screen, read from the adapter.</summary>
+    private readonly TunnelStats _stats = new();
+    private DispatcherTimer? _statsTimer;
+    private TimeSpan? _latency;
+    private int _latencyTick;
+
+    /// <summary>
+    /// True while the code box is asking for the eight-character fallback
+    /// instead of the two digits the phone normally shows.
+    /// </summary>
+    private bool _longCode;
+
+    /// <summary>Guards the two paths that can resolve a code at the same moment.</summary>
+    private bool _connecting;
+
+    /// <summary>
+    /// The last connection attempt, so "Try Again" can make it again.
+    ///
+    /// It used to be a label on a dismiss: every error whose button said
+    /// Try Again just went back to the idle screen, the same as Dismiss
+    /// beside it, so the one accented action promised something it did not
+    /// do (docs/ux-audit.md P-01). Null when nothing has been attempted, in
+    /// which case Try Again does what it always did.
+    /// </summary>
+    private Func<Task>? _lastAttempt;
+
+    /// <summary>
+    /// Whether the discovery socket actually came up. False means two digits
+    /// cannot work on this PC at all, and the empty list has to say so rather
+    /// than blaming the phone. See <see cref="DiscoveryHealth"/>.
+    /// </summary>
+    private bool _discoveryListening;
+
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
+    private const int SW_SHOW = 5;
+
+    /// <summary>
+    /// Reliably brings the window to the foreground, even from a background
+    /// process (tray click, second launch). Windows' foreground lock otherwise
+    /// blocks SetForegroundWindow and the popover stays hidden/behind, looking
+    /// frozen; attaching to the current foreground thread's input bypasses it.
+    /// </summary>
+    private static void ForceForeground(IntPtr hwnd)
+    {
+        var fgThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+        var thisThread = GetCurrentThreadId();
+        var attached = fgThread != thisThread && AttachThreadInput(fgThread, thisThread, true);
+        ShowWindow(hwnd, SW_SHOW);
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        if (attached) AttachThreadInput(fgThread, thisThread, false);
+    }
+
+    private IntPtr Hwnd => WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+    /// <summary>
+    /// Set by the tray's Exit item so the Closing handler lets the close through
+    /// instead of hiding to the tray. UI-thread only.
+    /// </summary>
+    public bool ExitRequested { get; set; }
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        Title = Strings.Get("AppName");
+        ConfigureAppWindow();
+        ApplyStrings();
+
+        _controller.StateChanged += () => DispatcherQueue.TryEnqueue(OnStateChanged);
+        LocalLog.Changed += () => DispatcherQueue.TryEnqueue(RefreshLogs);
+        // Discovery runs on its own socket thread; everything it touches here
+        // is UI, so it is marshalled rather than handled where it arrives.
+        _discovery.DevicesChanged += _ => DispatcherQueue.TryEnqueue(OnDevicesChanged);
+        Root.ActualThemeChanged += (_, _) => Render();
+        AttachPressFeedback();
+        AttachKeyboard();
+        RefreshLogs();
+
+        // Start listening straight away. Someone types two digits in about a
+        // second, and a listener that only starts when the code box opens would
+        // still be empty when they finish -- they would be told no phone is
+        // there while the phone is shouting on the wire.
+        try
+        {
+            _discovery.Start();
+            _discoveryListening = true;
+        }
+        catch (Exception ex)
+        {
+            // Another program on 47654, or a policy that forbids the bind.
+            // Pairing by QR and by the eight-character code both still work, so
+            // this is not a dialog — but it was only a log line, and that was
+            // the mistake: the person sat in front of an empty list being told
+            // to start sharing on a phone that already was. The fallbacks only
+            // help someone who knows to reach for them. PopulateIdleList says so.
+            _discoveryListening = false;
+            LocalLog.Add($"Device discovery unavailable: {ex.Message}");
+        }
+
+        Render();
+    }
+
+    private void ConfigureAppWindow()
+    {
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Linqavo.ico"));
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(TitleStrip);
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var caption = AppWindow.TitleBar;
+            caption.ButtonBackgroundColor = caption.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+            caption.ButtonForegroundColor = ((Microsoft.UI.Xaml.Media.SolidColorBrush)ThemeBrush("LabelPrimary")).Color;
+            caption.ButtonInactiveForegroundColor = ((Microsoft.UI.Xaml.Media.SolidColorBrush)ThemeBrush("LabelTertiary")).Color;
+            caption.ButtonHoverBackgroundColor = ((Microsoft.UI.Xaml.Media.SolidColorBrush)ThemeBrush("SettingsSurface")).Color;
+            caption.ButtonHoverForegroundColor = caption.ButtonPressedForegroundColor = Microsoft.UI.Colors.White;
+            caption.ButtonPressedBackgroundColor = ((Microsoft.UI.Xaml.Media.SolidColorBrush)ThemeBrush("SessionSurface")).Color;
+        }
+        _presenter = AppWindow.Presenter as OverlappedPresenter;
+        // Alt-Tab finds it. A tray-only app is a lost app on Windows 11, which
+        // hides new notification icons in the overflow by default -- so the one
+        // documented way back to Relay is behind a chevron most people never
+        // open. Finding the icon took deliberate UI-automation work during
+        // hardware testing; a person who just wants to disconnect has less
+        // patience than that.
+        //
+        // This costs nothing while hidden: a window that is not shown is not in
+        // the switcher either, so the tray still owns the "put it away" story.
+        AppWindow.IsShownInSwitchers = true;
+
+        // Closing the popover hides it to the tray; it's never destroyed — unless
+        // the user picked Exit, in which case cancelling here would swallow the
+        // close that Application.Exit() depends on and strand the process with no
+        // tray icon and the single-instance mutex still held (issue #18).
+        AppWindow.Closing += (_, args) =>
+        {
+            if (ExitRequested) { _mini?.Close(); return; }
+            args.Cancel = true;
+            HideToTray();
+        };
+
+        if (System.Globalization.CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft)
+        {
+            Root.FlowDirection = FlowDirection.RightToLeft;
+        }
+    }
+
+    /// <summary>
+    /// Adopts the tray icon into this window's visual tree.
+    ///
+    /// A TaskbarIcon is a FrameworkElement, and its context flyout needs a
+    /// XamlRoot to route input through. Created free-floating — which is how it
+    /// was — the menu could open and its items could still never raise Click,
+    /// which is one half of "Exit and Disconnect do nothing" (issue #18, and the
+    /// August field reports that reopened it). It draws nothing and is pinned to
+    /// zero size, so it cannot disturb the layout it now lives in.
+    /// </summary>
+    public void HostTrayIcon(FrameworkElement trayIcon)
+    {
+        trayIcon.Width = 0;
+        trayIcon.Height = 0;
+        trayIcon.HorizontalAlignment = HorizontalAlignment.Left;
+        trayIcon.VerticalAlignment = VerticalAlignment.Top;
+        // Never let a hosting failure cost the user their tray icon entirely:
+        // an unparented icon is degraded, an exception here is no icon at all.
+        try { Root.Children.Add(trayIcon); }
+        catch (Exception ex) { LocalLog.Add($"Tray hosting failed: {ex.Message}"); }
+    }
+
+    public void ShowDashboard()
+    {
+        _shown = true;
+        UpdateSearchMotion();
+        UpdateProbing();
+        if (!_positioned)
+        {
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+            var scale = GetDpiForWindow(Hwnd) / 96.0;
+            var width = Math.Min(area.Width, (int)(980 * scale));
+            var height = Math.Min(area.Height, (int)(650 * scale));
+            AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2,
+                area.Y + (area.Height - height) / 2, width, height));
+            _positioned = true;
+        }
+        if (_presenter?.State == OverlappedPresenterState.Minimized) _presenter.Restore();
+        AppWindow.Show();
+        ForceForeground(Hwnd);
+        Activate();
+        FocusPrimary();
+    }
+
+    public void ShowStatus()
+    {
+        if (_mini is null)
+        {
+            _mini = new StatusWindow(ShowDashboard);
+            _mini.Closed += (_, _) => _mini = null;
+        }
+        RefreshMini();
+        _mini.ShowAtTray();
+    }
+
+    private void RefreshMini()
+    {
+        if (_mini is null) return;
+        var connected = _controller.StateName == "Connected";
+        var reason = _localError ?? (_controller.StateName == "Error" ? _controller.ErrorCode
+            : connected ? _controller.ConnectionNoticeCode : null);
+        var detail = reason is not null ? Strings.Get(ConnectionErrors.For(reason).Body)
+            : connected && _controller.PresenceDegraded ? Strings.Get("PresenceDegraded")
+            : _controller.Payload?.Name ?? _controller.Payload?.Host ?? string.Empty;
+        var rates = _controller.StateName == "Connected" && !_controller.Reconnecting && reason is null
+            ? $"{StatDownRate.Text}   {StatUpRate.Text}" : string.Empty;
+        _mini.Update(StatusChipText.Text, detail, rates, StatusDot.Fill);
+    }
+
+    private void OnHome(object sender, RoutedEventArgs e) => SetSettings(false);
+    private void OnSettings(object sender, RoutedEventArgs e) => SetSettings(true);
+
+    private void SetSettings(bool settings)
+    {
+        if (settings && _mode == InputMode.Scanning) StopScanning();
+        SettingsPage.Visibility = Show(settings);
+        Dashboard.Visibility = Show(!settings);
+        HomeNav.Background = ThemeBrush(settings ? "FillTertiary" : "AccentFaintBrush");
+        SettingsNav.Background = ThemeBrush(settings ? "AccentFaintBrush" : "FillTertiary");
+        Motion.EnterPanel(settings ? SettingsPage : Dashboard);
+        UpdateSearchMotion();
+        FocusPrimary();
+    }
+
+    private void OnDashboardSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var stacked = e.NewSize.Width < 600;
+        RightColumn.Width = new GridLength(stacked ? 0 : 1, GridUnitType.Star);
+        Grid.SetColumn(SessionColumn, stacked ? 0 : 1);
+        Grid.SetRow(SessionColumn, stacked ? 1 : 0);
+    }
+
+    private void HideToTray()
+    {
+        FinishVerification(false);
+        StopScanning();
+        _shown = false;
+        UpdateSearchMotion();
+        UpdateProbing();
+        AppWindow.Hide();
+    }
+
+    /// <summary>
+    /// Probe while someone is looking, and while a tunnel is up.
+    ///
+    /// The second half is not for the pairing screen. It is how the tunnel
+    /// learns the phone has changed address: Windows Firewall drops
+    /// unsolicited inbound UDP to an unelevated app, and Relay's installer is
+    /// per-user so it cannot add a rule, which means the beacons announcing the
+    /// new lease do not arrive unless this end has sent something first. Stop
+    /// probing on hide and the roaming fix works only with the window open,
+    /// which is the case it is least needed in.
+    ///
+    /// ponytail: one small datagram per interface per second, and only while a
+    /// tunnel it would otherwise lose is running. Give discovery a slower
+    /// interval for this if a battery ever complains.
+    /// </summary>
+    private void UpdateProbing()
+    {
+        try { _discovery.SetProbing(_shown || _controller.StateName == "Connected"); }
+        catch (Exception ex) { LocalLog.Add($"Probe failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Every button dips under the pointer the instant it goes down, not when
+    /// the click completes. Waiting for the release is what makes an interface
+    /// feel like it is thinking rather than responding.
+    /// </summary>
+    private void AttachPressFeedback()
+    {
+        foreach (var button in new[]
+        {
+            ScanButton, EnterCodeButton, ScanCancelButton, CodeConnectButton,
+            CodeCancelButton, BusyCancelButton, DisconnectButton,
+            ErrorPrimaryButton, ErrorDismissButton,
+        })
+        {
+            var target = button;
+            target.AddHandler(UIElement.PointerPressedEvent,
+                new PointerEventHandler((_, _) => Motion.PressDown(target)), handledEventsToo: true);
+            // Released *and* exited: dragging off a control must not leave it
+            // stuck in the pressed state.
+            target.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler((_, _) => Motion.PressUp(target)), handledEventsToo: true);
+            target.PointerExited += (_, _) => Motion.PressUp(target);
+            target.PointerCaptureLost += (_, _) => Motion.PressUp(target);
+        }
+    }
+
+    /// <summary>
+    /// Escape backs out of whatever is open, Enter takes the primary action.
+    /// A tray popover that can only be driven with a mouse is a popover half
+    /// its users cannot drive.
+    /// </summary>
+    private void AttachKeyboard()
+    {
+        // handledEventsToo, because the focused control gets the key first and
+        // TextBox marks several of these handled. Escape has to work while the
+        // caret is in the code box — that is precisely where a user is most
+        // likely to want out.
+        Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
+        {
+            if (_verification is not null)
+            {
+                if (e.Key == Windows.System.VirtualKey.Escape)
+                {
+                    FinishVerification(false);
+                    e.Handled = true;
+                }
+                return;
+            }
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.Escape:
+                    if (SettingsPage.Visibility == Visibility.Visible) { SetSettings(false); e.Handled = true; break; }
+                    if (_mode != InputMode.None || _localError is not null)
+                    {
+                        OnCancelClick(this, new RoutedEventArgs());
+                    }
+                    else
+                    {
+                        HideToTray();
+                    }
+                    e.Handled = true;
+                    break;
+
+                case Windows.System.VirtualKey.Enter:
+                    if (SettingsPage.Visibility == Visibility.Visible) break;
+                    // A focused button, link, switch or expander answers Enter
+                    // itself. This handler used to run anyway, so tabbing to
+                    // Dismiss and pressing Enter ran the primary action, and
+                    // Enter on a listed phone also opened the camera (P-26).
+                    if (FocusManager.GetFocusedElement(Root.XamlRoot) is ButtonBase or ToggleSwitch)
+                    {
+                        break;
+                    }
+                    if (ErrorPanel.Visibility == Visibility.Visible &&
+                        ErrorPrimaryButton.Visibility == Visibility.Visible)
+                    {
+                        OnErrorPrimaryClick(this, new RoutedEventArgs());
+                        e.Handled = true;
+                    }
+                    else if (CodePanel.Visibility == Visibility.Visible &&
+                             CodeConnectButton.IsEnabled)
+                    {
+                        OnCodeConnectClick(this, new RoutedEventArgs());
+                        e.Handled = true;
+                    }
+                    else if (IdlePanel.Visibility == Visibility.Visible)
+                    {
+                        OnScanClick(this, new RoutedEventArgs());
+                        e.Handled = true;
+                    }
+                    break;
+            }
+        }), handledEventsToo: true);
+    }
+
+    /// <summary>
+    /// Puts the caret somewhere sensible when the popover appears. Without this
+    /// nothing inside holds focus, key events have no element to bubble from,
+    /// and a keyboard user opening the popover is simply stuck.
+    /// </summary>
+    private void FocusPrimary()
+    {
+        if (_verification is not null) { VerifyCancel.Focus(FocusState.Programmatic); return; }
+        if (SettingsPage.Visibility == Visibility.Visible) { SettingsNav.Focus(FocusState.Programmatic); return; }
+        var target = _visiblePanel switch
+        {
+            _ when ReferenceEquals(_visiblePanel, CodePanel) => (Control)CodeBox,
+            _ when ReferenceEquals(_visiblePanel, ConnectedPanel) => DisconnectButton,
+            _ when ReferenceEquals(_visiblePanel, ErrorPanel) =>
+                ErrorPrimaryButton.Visibility == Visibility.Visible
+                    ? ErrorPrimaryButton : ErrorDismissButton,
+            _ when ReferenceEquals(_visiblePanel, ScanPanel) => ScanCancelButton,
+            _ when ReferenceEquals(_visiblePanel, BusyPanel) => BusyCancelButton,
+            _ => ScanButton,
+        };
+        try { target.Focus(FocusState.Programmatic); } catch { }
+    }
+
+    private void ApplyStrings()
+    {
+        WindowTitle.Text = Title;
+        VerifyTitle.Text = Strings.Get("EnrollmentVerify");
+        VerifyInstruction.Text = Strings.Get("EnrollmentServer");
+        VerifyMatch.Content = Strings.Get("EnrollmentMatches");
+        VerifyCancel.Content = Strings.Get("Cancel");
+        ProtectionHeading.Text = Strings.Get("ProtectionHeading");
+        ApplicationHeading.Text = Strings.Get("ApplicationHeading");
+        LeakDescription.Text = Strings.Get("AdvancedLeakBlockHint");
+        HoldDescription.Text = Strings.Get("AdvancedKillSwitchHint");
+        DevicesTitle.Text = Strings.Get("Devices");
+        SettingsTitle.Text = NavSettingsLabel.Text = Strings.Get("Settings");
+        HomeNav.Background = ThemeBrush("AccentFaintBrush");
+        AutomationProperties.SetName(HomeNav, DevicesTitle.Text);
+        AutomationProperties.SetName(SettingsNav, SettingsTitle.Text);
+        ToolTipService.SetToolTip(HomeNav, DevicesTitle.Text);
+        ToolTipService.SetToolTip(SettingsNav, SettingsTitle.Text);
+        IdleHeadline.Text = Strings.Get("IdleHeadline");
+        IdleBody.Text = Strings.Get("IdleBody");
+        ScanButton.Content = Strings.Get("ScanQr");
+        EnterCodeButton.Content = Strings.Get("EnterCode");
+        ScanHintText.Text = Strings.Get("ScanAiming");
+        ScanCancelButton.Content = Strings.Get("Cancel");
+        CodeHintText.Text = Strings.Get("CodeHint");
+        CodeModeLink.Content = Strings.Get("CodeUseLong");
+        FoundHeader.Text = Strings.Get("CodeNearby");
+        CodeConnectButton.Content = Strings.Get("Connect");
+        CodeCancelButton.Content = Strings.Get("Cancel");
+        BusyText.Text = Strings.Get("BusyConnecting");
+        BusyDetailText.Text = Strings.Get("BusyDetail");
+        BusyCancelButton.Content = Strings.Get("Cancel");
+        DisconnectButton.Content = Strings.Get("Disconnect");
+        ErrorDismissButton.Content = Strings.Get("Dismiss");
+        AdvancedVersionLabel.Text = Strings.Get("AdvancedVersion");
+        AdvancedVersionValue.Text = AppVersion.Current;
+        AdvancedAddressLabel.Text = Strings.Get("AdvancedAddress");
+        AdvancedLogsLabel.Text = Strings.Get("AdvancedLogs");
+        AdvancedLeakLabel.Text = Strings.Get("AdvancedLeakBlock");
+        AdvancedLeakToggle.OnContent = Strings.Get("AdvancedLeakBlockOn");
+        AdvancedLeakToggle.OffContent = Strings.Get("AdvancedLeakBlockOff");
+        ToolTipService.SetToolTip(AdvancedLeakToggle, Strings.Get("AdvancedLeakBlockHint"));
+        SyncLeakToggle();
+        AdvancedKillSwitchLabel.Text = Strings.Get("AdvancedKillSwitch");
+        AdvancedKillSwitchToggle.OnContent = Strings.Get("AdvancedLeakBlockOn");
+        AdvancedKillSwitchToggle.OffContent = Strings.Get("AdvancedLeakBlockOff");
+        ToolTipService.SetToolTip(AdvancedKillSwitchToggle, Strings.Get("AdvancedKillSwitchHint"));
+        SyncKillSwitchToggle();
+        AdvancedStartupLabel.Text = Strings.Get("AdvancedStartup");
+        AdvancedStartupToggle.OnContent = Strings.Get("AdvancedStartupOn");
+        AdvancedStartupToggle.OffContent = Strings.Get("AdvancedStartupOff");
+        SyncStartupToggle();
+        AdvancedLogsClear.Content = Strings.Get("AdvancedLogsClear");
+        AdvancedLogsShare.Content = Strings.Get("AdvancedLogsShare");
+    }
+
+    /// <summary>
+    /// Resolves a token from the design system, falling back to a literal only
+    /// if the dictionary somehow is not loaded — this app is unpackaged and a
+    /// missing resource must never be able to fault the window.
+    /// </summary>
+    private Microsoft.UI.Xaml.Media.Brush ThemeBrush(string key)
+    {
+        if (Root.Resources.TryGetValue(key, out var local) &&
+            local is Microsoft.UI.Xaml.Media.Brush b1) return b1;
+        if (Application.Current.Resources.TryGetValue(key, out var app) &&
+            app is Microsoft.UI.Xaml.Media.Brush b2) return b2;
+
+        // No per-key colour table here any more.
+        //
+        // There used to be one, and it was a third copy of the palette: the
+        // accent existed as #45D6B8 in shared/design-tokens.json, #4ADFBF in
+        // Styles/Tokens.xaml, and (0xFF,0x4A,0xDF,0xBF) again in this switch.
+        // Every one of those five keys is defined in Tokens.xaml, so the table
+        // could only ever be reached by an app whose resources failed to merge —
+        // and in that app it made a broken theme render as a correct one, which
+        // is how a drifted value survives being looked at.
+        //
+        // A missing token now degrades to something visible and plainly
+        // unstyled, except for the one key that is a window background: a
+        // translucent fallback there would leave the desktop showing through.
+        LocalLog.Add($"Theme resource missing: {key}");
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            key == "WindowSolidBrush"
+                ? Windows.UI.Color.FromArgb(0xFF, 0x12, 0x16, 0x1D)
+                : Windows.UI.Color.FromArgb(0x5C, 0xFF, 0xFF, 0xFF));
+    }
+
+    private void RefreshLogs()
+    {
+        var logs = LocalLog.Snapshot();
+        LogText.Text = logs.Count == 0
+            ? Strings.Get("AdvancedLogsEmpty")
+            : string.Join("\n", logs.Reverse().Select(entry =>
+                $"{entry.ElapsedSeconds,7:F1}s  {entry.Message}"));
+    }
+
+    private void OnClearLogsClick(object sender, RoutedEventArgs e) => LocalLog.Clear();
+
+    /// <summary>
+    /// Reads the registry rather than a field, so the switch shows what is
+    /// actually true. Someone can turn Relay off in Task Manager's Startup tab
+    /// while it is running, and a remembered value would then be a lie.
+    /// </summary>
+    private void SyncStartupToggle()
+    {
+        _syncingStartup = true;
+        try { AdvancedStartupToggle.IsOn = StartupRegistration.IsEnabled(); }
+        finally { _syncingStartup = false; }
+    }
+
+    /// <summary>Guards the programmatic IsOn write above from re-entering the handler.</summary>
+    private bool _syncingStartup;
+
+    /// <summary>
+    /// Reads the setting rather than remembering it, for the same reason the
+    /// startup switch does: it must show what the next connection will actually
+    /// do, not what this window was told once.
+    /// </summary>
+    private void SyncLeakToggle()
+    {
+        _syncingLeak = true;
+        try { AdvancedLeakToggle.IsOn = LeakProtection.IsEnabled(); }
+        finally { _syncingLeak = false; }
+    }
+
+    private bool _syncingLeak;
+
+    private void OnLeakBlockToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingLeak) return;
+
+        var wanted = AdvancedLeakToggle.IsOn;
+        if (!LeakProtection.Set(wanted))
+        {
+            LocalLog.Add("Windows would not save that");
+            SyncLeakToggle();
+            return;
+        }
+        LocalLog.Add(wanted
+            ? "Leak protection on — takes effect on the next connection"
+            : "Leak protection OFF — DNS and IPv6 can leave outside the tunnel");
+    }
+
+    /// <summary>Read, not remembered — see <see cref="SyncLeakToggle"/>.</summary>
+    private void SyncKillSwitchToggle()
+    {
+        _syncingKillSwitch = true;
+        try { AdvancedKillSwitchToggle.IsOn = KillSwitch.IsEnabled(); }
+        finally { _syncingKillSwitch = false; }
+    }
+
+    private bool _syncingKillSwitch;
+
+    private void OnKillSwitchToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingKillSwitch) return;
+
+        var wanted = AdvancedKillSwitchToggle.IsOn;
+        if (!KillSwitch.Set(wanted))
+        {
+            LocalLog.Add("Windows would not save that");
+            SyncKillSwitchToggle();
+            return;
+        }
+        LocalLog.Add(wanted
+            ? "Kill switch on — takes effect on the next connection"
+            : "Kill switch off — if the phone stops answering, the laptop uses its own connection");
+    }
+
+    private void OnStartupToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingStartup) return;
+
+        var wanted = AdvancedStartupToggle.IsOn;
+        if (StartupRegistration.Set(wanted))
+        {
+            LocalLog.Add(wanted ? "Will start with Windows" : "Will no longer start with Windows");
+            return;
+        }
+
+        // A locked-down machine can refuse the write. Say so and put the switch
+        // back where the registry actually is, rather than leaving it showing a
+        // setting that did not take.
+        LocalLog.Add(Strings.Get("AdvancedStartupFailed"));
+        SyncStartupToggle();
+    }
+
+    /// <summary>
+    /// Puts the report on the clipboard and opens a GitHub issue with it
+    /// already in the body. Two steps rather than one because the clipboard
+    /// copy is what saves the report if the browser fails to open, and because
+    /// a person who would rather send it somewhere else -- Telegram, mail --
+    /// now has it in hand without being routed through GitHub first.
+    /// </summary>
+    private async void OnShareLogsClick(object sender, RoutedEventArgs e)
+    {
+        var entries = LocalLog.Snapshot()
+            .Select(entry => (entry.ElapsedSeconds, entry.Message))
+            .ToList();
+        var report = DiagnosticReport.Build(StateSummary(), entries, AppVersion.Current);
+
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(report);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        LocalLog.Add("Diagnostic report copied to the clipboard");
+
+        // Report remains on the clipboard; no upstream browser submission.
+        await Task.CompletedTask;
+    }
+
+    /// <summary>One line saying what went wrong, not just which screen is up.</summary>
+    private string StateSummary()
+    {
+        var error = _localError ?? _controller.ErrorCode;
+        return error is null ? _controller.StateName : $"Error: {error}";
+    }
+
+    // --- state projection ----------------------------------------------------
+
+    private void Render()
+    {
+        // A local input error (bad scan/code, camera) is a first-class Render
+        // state, so a later Render (e.g. from a theme change) can't erase it.
+        if (_localError is not null)
+        {
+            ShowOnly(ErrorPanel);
+            ApplyError(_localError);
+            SetStatusChip("DangerBrush", Strings.Get("StatusError"));
+            RefreshMini();
+            return;
+        }
+
+        var state = _controller.StateName;
+        var reconnecting = _controller.Reconnecting && state == "Connected";
+        var lossLabel = Strings.Get(ConnectionPresentation.LossLabelKey(_controller.ConnectionNoticeCode));
+
+        ShowOnly(
+            state == "Idle" && _mode == InputMode.Scanning ? ScanPanel
+            : state == "Idle" && _mode == InputMode.Code ? CodePanel
+            // Asking the phone happens before the controller has any state
+            // of its own, so this is the one busy screen the window owns.
+            : state == "Idle" && _mode == InputMode.Pairing ? BusyPanel
+            : state == "Idle" ? IdlePanel
+            : state is "Preparing" or "Advertising" ? BusyPanel
+            : state == "Connected" ? ConnectedPanel
+            : state == "Error" ? ErrorPanel
+            : IdlePanel);
+
+        // Refresh the phones on the idle screen whenever it is the screen being
+        // shown, so it is never a stale list from the last time it was open.
+        if (ReferenceEquals(_visiblePanel, IdlePanel)) PopulateIdleList();
+
+        if (state == "Connected") StartStats(); else StopStats();
+
+        SetStatusChip(
+            reconnecting ? "WarningBrush"
+            : state switch
+            {
+                "Connected" => "AccentBrush",
+                "Error" => "DangerBrush",
+                "Preparing" or "Advertising" => "LabelSecondary",
+                _ => "LabelQuaternary",
+            },
+            reconnecting ? lossLabel
+            : state switch
+            {
+                "Connected" => Strings.Get("StatusConnected"),
+                "Idle" when _mode == InputMode.Pairing => Strings.Get("StatusConnecting"),
+                "Preparing" or "Advertising" => Strings.Get("StatusConnecting"),
+                // The dot was red and the word said "Not connected" (P-05).
+                "Error" => Strings.Get("StatusError"),
+                _ => Strings.Get("StatusIdle"),
+            });
+
+        if (state == "Connected" && _controller.Payload is { } payload)
+        {
+            ConnectedText.Text = payload.Name ?? payload.Host;
+            // The address line says how, when the phone told us: a person who
+            // plugged a cable in should be able to see that it is the one being
+            // used, rather than inferring it from the speed.
+            var link = _discovery.LinkStringKeyFor(payload.Host);
+            ConnectedDetailText.Text = link is null
+                ? $"{payload.Host}:{payload.Port}"
+                : $"{payload.Host}:{payload.Port} · {Strings.Get(link)}";
+            ReconnectingText.Text = _controller.ConnectionNoticeCode is { } notice
+                ? Strings.Get(ConnectionErrors.For(notice).Body)
+                : Strings.Get(_controller.PresenceDegraded ? "PresenceDegraded" : "Reconnecting");
+            ReconnectingBanner.Visibility = Show(reconnecting || _controller.PresenceDegraded);
+            StatsCard.Visibility = Show(!reconnecting);
+        }
+        if (state == "Error") ApplyError(_controller.ErrorCode ?? string.Empty);
+
+        RefreshMini();
+        AdvancedAddressValue.Text = _controller.Payload is { } p ? $"{p.Host}:{p.Port}" : "—";
+    }
+
+    private void ShowOnly(FrameworkElement panel)
+    {
+        var changed = !ReferenceEquals(_visiblePanel, panel);
+        _visiblePanel = panel;
+        foreach (var item in AllPanels) item.Visibility = Show(ReferenceEquals(item, panel));
+        var selected = ReferenceEquals(panel, ConnectedPanel);
+        SelectedDevice.Visibility = Show(selected);
+        SelectedName.Text = selected ? _controller.Payload?.Name ?? _controller.Payload?.Host : string.Empty;
+        if (changed && _shown) Motion.EnterPanel(panel);
+        UpdateSearchMotion();
+    }
+
+    private void UpdateSearchMotion()
+    {
+        var searching = _shown && Dashboard.Visibility == Visibility.Visible && _verification is null &&
+            Motion.Enabled && (ReferenceEquals(_visiblePanel, BusyPanel) || ReferenceEquals(_visiblePanel, ScanPanel)
+            || (_discoveryListening && ReferenceEquals(_visiblePanel, IdlePanel)) || _controller.Reconnecting);
+        if (_ringsPulsing == searching) return;
+        _ringsPulsing = searching;
+        if (searching) Motion.StartPulse(SessionRings);
+        else Motion.StopPulse(SessionRings);
+    }
+
+    private FrameworkElement[] AllPanels => new FrameworkElement[]
+        { IdlePanel, ScanPanel, CodePanel, BusyPanel, ConnectedPanel, ErrorPanel };
+
+    /// <summary>
+    /// Errors get a name and a next step, not one block of prose. The primary
+    /// action is the thing that most often fixes it, so recovering does not
+    /// mean going back to the start and working out what to press.
+    /// </summary>
+    private void ApplyError(string code)
+    {
+        var (title,body,primary) = ConnectionErrors.For(code);
+
+        _errorAction = primary;
+        ErrorTitle.Text = Strings.Get(title);
+        ErrorText.Text = Strings.Get(body);
+        ErrorPrimaryButton.Content = primary is null ? string.Empty : Strings.Get(primary);
+        ErrorPrimaryButton.Visibility = Show(primary is not null);
+        ErrorDismissButton.Content = Strings.Get("Dismiss");
+        Announce(ErrorTitle);
+    }
+
+    /// <summary>
+    /// Tells Narrator a live region changed. Nothing announced a state
+    /// change before (P-24): "Connected" and every error arrived silently.
+    /// </summary>
+    private static void Announce(FrameworkElement element)
+    {
+        try
+        {
+            var peer = FrameworkElementAutomationPeer.FromElement(element)
+                ?? FrameworkElementAutomationPeer.CreatePeerForElement(element);
+            peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+        }
+        catch (Exception)
+        {
+            // Accessibility plumbing must never be why the window fails.
+        }
+    }
+
+    private void SetStatusChip(string brushKey, string label)
+    {
+        StatusDot.Fill = ThemeBrush(brushKey);
+        if (StatusChipText.Text == label) return;
+        StatusChipText.Text = label;
+        if (_shown) Motion.EnterPanel(SessionSummary);
+        Announce(StatusChipText);
+    }
+
+    private static Visibility Show(bool visible) => visible ? Visibility.Visible : Visibility.Collapsed;
+
+    // --- scanning -------------------------------------------------------------
+
+    private async void OnScanClick(object sender, RoutedEventArgs e)
+    {
+        _localError = null;
+        _mode = InputMode.Scanning;
+        Render();
+        _scanner = new CameraQrScanner();
+        _scanner.PreviewFrame += OnPreviewFrame;
+        _scanner.Decoded += OnQrDecoded;
+        try
+        {
+            await _scanner.StartAsync();
+        }
+        catch (Exception)
+        {
+            StopScanning();
+            ShowLocalError("ERR_CAMERA_DENIED");
+        }
+    }
+
+    private void OnPreviewFrame(SoftwareBitmap bitmap)
+    {
+        // ~10 fps is plenty for framing a QR; drop the rest.
+        var now = Environment.TickCount64;
+        if (now - _lastPreviewTicks < 100)
+        {
+            bitmap.Dispose();
+            return;
+        }
+        _lastPreviewTicks = now;
+
+        // A DispatcherQueueHandler returns void, so this lambda is an async void
+        // running ten times a second for the whole scan: SetBitmapAsync is a
+        // WinRT call that throws while the XAML core is tearing down, and an
+        // escape would reach App.UnhandledException and kill the process
+        // mid-scan. The old frame is also disposed *after* the new one is in
+        // place, rather than from a stale local that two interleaved callbacks
+        // could both read as null (which leaked the unmanaged bitmap).
+        var queued = DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                using (bitmap)
+                {
+                    if (_mode != InputMode.Scanning) return;
+                    var source = new SoftwareBitmapSource();
+                    await source.SetBitmapAsync(bitmap);
+                    var previous = PreviewImage.Source as SoftwareBitmapSource;
+                    PreviewImage.Source = source;
+                    previous?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                LocalLog.Add($"Preview frame dropped: {ex.Message}");
+            }
+        });
+        // The queue refuses work once it is shutting down; that frame still owns
+        // an unmanaged bitmap nobody else will free.
+        if (!queued) bitmap.Dispose();
+    }
+
+    private void OnQrDecoded(string text)
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (_mode != InputMode.Scanning) return;
+            StopScanning();
+
+            var decoded = QrPayloadCodec.Decode(text);
+            if (!decoded.IsOk)
+            {
+                ShowLocalError(decoded.Reason == "unknown-version" ? "ERR_QR_NEWER_VERSION" : "ERR_QR_INVALID");
+                return;
+            }
+            _localError = null;
+            var payload = decoded.Payload!;
+            if(payload.Mode==QrPayload.ModeWireguard) {
+                payload=await PairAsync(payload.Host,payload.PairingPort!.Value,payload.Name,payload.TlsFingerprint);
+                if(payload is null)return;
+            }
+            _lastAttempt = () => _controller.ConnectAsync(payload);
+            await _controller.ConnectAsync(payload);
+        });
+    }
+
+    private void StopScanning()
+    {
+        _mode = InputMode.None;
+        _scanner?.Dispose();
+        _scanner = null;
+        PreviewImage.Source = null;
+        Render();
+    }
+
+    // --- manual code ------------------------------------------------------------
+
+    private void OnEnterCodeClick(object sender, RoutedEventArgs e)
+    {
+        _localError = null;
+        _mode = InputMode.Code;
+        _longCode = false;
+        _connecting = false;
+        CodeBox.Text = string.Empty;
+        ApplyCodeMode();
+        // Ask straight away rather than waiting out a probe tick: the phone can
+        // answer before the box has finished animating in, and a list that
+        // fills a second after the user starts typing has already lost them.
+        try { _discovery.Probe(); } catch (Exception ex) { LocalLog.Add($"Probe failed: {ex.Message}"); }
+        PopulateFoundList();
+        Render();
+        CodeBox.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Switches between the two digits the phone normally shows and the eight
+    /// characters it falls back to when it could not announce itself at all.
+    /// </summary>
+    private void OnCodeModeClick(object sender, RoutedEventArgs e)
+    {
+        _longCode = !_longCode;
+        CodeBox.Text = string.Empty;
+        ApplyCodeMode();
+        CodeBox.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Shapes the box to the code it is asking for. The width of the box is
+    /// itself an instruction — a nine-character field says "type nine
+    /// characters" more loudly than any caption under it.
+    /// </summary>
+    private void ApplyCodeMode()
+    {
+        CodeBox.MaxLength = _longCode ? TypedCode.Length + 1 : LanDiscovery.CodeLength;
+        CodeBox.PlaceholderText = _longCode ? "XXXX-XXXX" : "00";
+        CodeHintText.Text = Strings.Get(_longCode ? "CodeHintLong" : "CodeHint");
+        CodeHintText.Foreground = ThemeBrush("LabelTertiary");
+        CodeModeLink.Content = Strings.Get(_longCode ? "CodeUseShort" : "CodeUseLong");
+        CodeConnectButton.IsEnabled = false;
+        FoundPanel.Visibility = Show(!_longCode && FoundList.Children.Count > 0);
+    }
+
+    /// <summary>
+    /// Validates as the user types and connects the moment the code resolves to
+    /// exactly one phone — making someone finish typing, read the button, aim
+    /// at it and click was a step the app could simply take itself.
+    /// </summary>
+    private void OnCodeChanged(object sender, TextChangedEventArgs e) => EvaluateCode(mayConnect: true);
+
+    private void EvaluateCode(bool mayConnect)
+    {
+        if (_longCode) { EvaluateLongCode(mayConnect); return; }
+
+        var typed = new string((CodeBox.Text ?? string.Empty).Where(ch => !char.IsWhiteSpace(ch)).ToArray());
+
+        if (typed.Length == 0)
+        {
+            CodeHintText.Text = Strings.Get("CodeHint");
+            CodeHintText.Foreground = ThemeBrush("LabelTertiary");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+
+        // Named separately from "that code is wrong": the phone shows digits, so
+        // a letter here means the user is reading the wrong thing off the
+        // screen, and saying which thing is the useful half of the message.
+        if (!typed.All(char.IsAsciiDigit))
+        {
+            CodeHintText.Text = Strings.Get("CodeDigitsOnly");
+            CodeHintText.Foreground = ThemeBrush("WarningBrush");
+            CodeConnectButton.IsEnabled = false;
+            Motion.Reject(CodeBox);
+            return;
+        }
+
+        // Codes start at 10 precisely so there is no "did I need the leading
+        // zero" moment; a typed zero is someone who has misread the screen.
+        if (typed[0] == '0')
+        {
+            CodeHintText.Text = Strings.Get("CodeNoLeadingZero");
+            CodeHintText.Foreground = ThemeBrush("WarningBrush");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+
+        if (typed.Length < LanDiscovery.CodeLength)
+        {
+            CodeHintText.Text = Strings.Get("CodeHintShort");
+            CodeHintText.Foreground = ThemeBrush("LabelTertiary");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+
+        var digits = LanDiscovery.NormalizeCode(typed);
+        if (digits is null)
+        {
+            CodeHintText.Text = Strings.Get("CodeDigitsOnly");
+            CodeHintText.Foreground = ThemeBrush("WarningBrush");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+        OnShortCodeTyped(digits, mayConnect);
+    }
+
+    /// <summary>
+    /// Two digits were typed. Unlike the long code there is nothing to decode —
+    /// the answer is whichever phone on this network is announcing that number,
+    /// so the failure modes are "nobody yet" and "more than one" rather than
+    /// "malformed".
+    /// </summary>
+    private void OnShortCodeTyped(string digits, bool mayConnect)
+    {
+        var matches = _discovery.MatchPhones(digits);
+        switch (matches.Count)
+        {
+            case 0:
+                // Not an error, and it must not read as one: the phone's next
+                // beacon is at most a second away, and this same check runs
+                // again the moment it lands. Saying "no phone has that code"
+                // in red to someone whose phone is about to appear is how a
+                // working setup gets abandoned.
+                CodeHintText.Text = Strings.Get("CodeLooking");
+                CodeHintText.Foreground = ThemeBrush("LabelTertiary");
+                CodeConnectButton.IsEnabled = false;
+                return;
+            case 1:
+                CodeHintText.Text = matches[0].Name is { Length: > 0 } name
+                    ? string.Format(Strings.Get("CodeFoundNamed"), name)
+                    : Strings.Get("CodeReady");
+                CodeHintText.Foreground = ThemeBrush("AccentBrush");
+                CodeConnectButton.IsEnabled = true;
+                if (mayConnect) _ = ConnectToAsync(matches[0]);
+                return;
+            default:
+                // Rare, and the only honest thing to do is ask. Picking the
+                // first would connect someone to a stranger's phone without
+                // ever telling them there was a choice.
+                CodeHintText.Text = string.Format(
+                    Strings.Get("CodeAmbiguous"),
+                    string.Join(", ", matches.Select(m => m.Name ?? m.Host)));
+                CodeHintText.Foreground = ThemeBrush("WarningBrush");
+                CodeConnectButton.IsEnabled = false;
+                return;
+        }
+    }
+
+    /// <summary>
+    /// The eight-character fallback. Unchanged in substance: it carries the
+    /// address itself, so it can be judged without the network's help.
+    /// </summary>
+    private void EvaluateLongCode(bool mayConnect)
+    {
+        // Normalise exactly as TypedCode.Decode does, because that is what
+        // judges the code a moment later. This used to strip every character
+        // that was not a letter or digit, which is a wider rule than the
+        // contract's "whitespace and '-'". A code typed or pasted with any
+        // other separator — "ABCD.EFGH" — therefore passed this check with the
+        // dot quietly removed, turned the hint green, said "ready" and
+        // auto-connected, and the decoder then saw the raw nine characters and
+        // rejected them as ERR_CODE_INVALID. The code was correct; the app
+        // refused it and blamed the user.
+        var clean = TypedCode.Normalize(CodeBox.Text);
+
+        if (clean.Length == 0)
+        {
+            CodeHintText.Text = Strings.Get("CodeHintLong");
+            CodeHintText.Foreground = ThemeBrush("LabelTertiary");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+
+        // Reject characters the alphabet does not contain before blaming the
+        // checksum: "that isn't one of the letters on your phone" is a more
+        // useful thing to be told than "invalid".
+        if (clean.Any(c => !TypedCode.Alphabet.Contains(c)))
+        {
+            CodeHintText.Text = Strings.Get("CodeBadChars");
+            CodeHintText.Foreground = ThemeBrush("WarningBrush");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+
+        if (clean.Length < TypedCode.Length)
+        {
+            CodeHintText.Text = string.Format(
+                Strings.Get("CodeIncomplete"), TypedCode.Length - clean.Length);
+            CodeHintText.Foreground = ThemeBrush("LabelTertiary");
+            CodeConnectButton.IsEnabled = false;
+            return;
+        }
+
+        if (TypedCode.Decode(clean) is null)
+        {
+            CodeHintText.Text = Strings.Get("CodeChecksum");
+            CodeHintText.Foreground = ThemeBrush("DangerBrush");
+            CodeConnectButton.IsEnabled = false;
+            Motion.Reject(CodeBox);
+            return;
+        }
+
+        CodeHintText.Text = Strings.Get("CodeReady");
+        CodeHintText.Foreground = ThemeBrush("AccentBrush");
+        CodeConnectButton.IsEnabled = true;
+        if (mayConnect) OnCodeConnectClick(this, new RoutedEventArgs());
+    }
+
+    /// <summary>
+    /// Rebuilds the list of phones announcing themselves right now. Each row is
+    /// the device's name and the code it is showing, so the two screens can be
+    /// checked against one another — and clicking one skips typing entirely.
+    /// </summary>
+    private void PopulateFoundList()
+    {
+        Fill(FoundList, _discovery.Devices);
+        FoundHeader.Text = Strings.Get("CodeNearby");
+        FoundPanel.Visibility = Show(!_longCode && FoundList.Children.Count > 0);
+    }
+
+    /// <summary>
+    /// The same phones, on the screen people actually land on.
+    ///
+    /// Discovery has been running since the window opened, so by the time anyone
+    /// reads the idle text the app usually already knows which phone is sharing
+    /// and what code it shows. Asking them to read those two digits off the
+    /// phone and type them back is asking them to relay information the app has
+    /// in hand. When the list is not empty, one click is the entire pairing.
+    /// </summary>
+    private void PopulateIdleList()
+    {
+        // Only phones a code can actually pair with. One that could not bind its
+        // pairing port is real and worth showing in the code box -- where the
+        // error explains itself -- but offering it as a one-click row here would
+        // promise something that cannot happen.
+        var devices = _discovery.Devices.Where(d => d.CanPairByCode).ToList();
+        Fill(IdleFoundList, devices, accentSingle: true);
+        IdleFoundHeader.Text = Strings.Get("IdleNearby");
+        IdleFoundPanel.Visibility = Show(devices.Count > 0);
+
+        // "Open Relay on your phone and tap Start Sharing" above a list of
+        // phones that are already sharing reads as a contradiction, and makes
+        // someone wonder whether the app has noticed what it is showing them.
+        IdleBody.Visibility = Show(devices.Count == 0);
+
+        // And when it is empty, say which empty this is. The old text is right
+        // for a phone that is not sharing yet and wrong for a PC that never
+        // managed to listen, or that has not joined the phone's hotspot —
+        // advice for a problem they do not have, which they will follow, watch
+        // fail, and blame on the two apps not seeing each other.
+        if (devices.Count == 0)
+        {
+            IdleBody.Text = Strings.Get(DiscoveryHealth.StringKey(
+                DiscoveryHealth.Diagnose(_discoveryListening, DiscoveryHealth.OnANetwork)));
+        }
+
+        // Two accented buttons on one screen is no emphasis at all. When a
+        // phone is offered, scanning becomes the alternative it actually is.
+        if (Application.Current.Resources.TryGetValue(
+                devices.Count > 0 ? "SecondaryButton" : "PrimaryButton", out var scanStyle) &&
+            scanStyle is Style scan) ScanButton.Style = scan;
+    }
+
+    /// <param name="accentSingle">
+    /// Give a lone phone the accent. On the idle screen one phone is genuinely
+    /// "the one thing to do on this screen", and leaving it text-weight put the
+    /// emphasis on Scan QR instead -- the slower path drawn as the obvious one.
+    /// With several phones there is a choice to make, so none of them shouts.
+    /// </param>
+    private void Fill(Panel list, IReadOnlyList<LanDiscovery.Device> devices, bool accentSingle = false)
+    {
+        list.Children.Clear();
+        foreach (var device in devices)
+        {
+            var button = new Button
+            {
+                // The code first, because that is the thing the eye is comparing
+                // against the phone. Then the link, when the phone said one:
+                // clicking this row commits to a path, and which path it is
+                // belongs on the row rather than being discovered afterwards.
+                Content = RowContent(device),
+                Tag = device,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+            };
+            // Narrator reads one sentence rather than a run of padded fragments.
+            AutomationProperties.SetName(button, RowLabel(device));
+            // Never QuietButton: that style has no fill by design, so a row
+            // drawn with it reads as a caption rather than something to click.
+            var wanted = accentSingle && devices.Count == 1 ? "PrimaryButton" : "SecondaryButton";
+            if (Application.Current.Resources.TryGetValue(wanted, out var style) &&
+                style is Style resolved) button.Style = resolved;
+            button.Click += OnFoundPhoneClick;
+            list.Children.Add(button);
+        }
+    }
+
+    /// <summary>
+    /// One row: the code, the phone, and how it is reachable.
+    ///
+    /// <see cref="LanDiscovery.Devices"/> has already collapsed a phone's paths
+    /// to the one it would take, so the link named here is the link a click will
+    /// actually use.
+    /// </summary>
+    /// <summary>
+    /// The row as separate runs rather than one string padded with spaces.
+    /// Joined, a Latin code, a Latin model name and a Persian link word were
+    /// one bidi paragraph whose order depended on the UI language; apart, each
+    /// keeps its own direction and the panel's flow lays them out (P-31).
+    /// </summary>
+    private static UIElement RowContent(LanDiscovery.Device device)
+    {
+        var who = device.Name is { Length: > 0 } name ? name : device.Host;
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        row.Children.Add(new TextBlock
+        {
+            Text = device.Code,
+            FlowDirection = FlowDirection.LeftToRight,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+        });
+        row.Children.Add(new TextBlock { Text = who, TextTrimming = TextTrimming.CharacterEllipsis });
+        if (device.LinkStringKey is { } key)
+        {
+            row.Children.Add(new TextBlock { Text = Strings.Get(key), Opacity = 0.72 });
+        }
+        if (device.RepliesBlocked)
+        {
+            row.Children.Add(new TextBlock { Text = Strings.Get("PhoneCannotAnswer"), Opacity = 0.72 });
+        }
+        return row;
+    }
+
+    private static string RowLabel(LanDiscovery.Device device)
+    {
+        var who = device.Name is { Length: > 0 } name ? name : device.Host;
+        var label = device.LinkStringKey is { } key
+            ? $"{device.Code}   {who}   ·   {Strings.Get(key)}"
+            : $"{device.Code}   {who}";
+        // Marked before it is clicked, not only after. The phone is genuinely
+        // there and genuinely reachable — it is the reply that is not getting
+        // back — so it stays in the list and stays clickable; it just stops
+        // being the obvious thing to try when another phone is listed beside it.
+        return device.RepliesBlocked ? $"{label}   ·   {Strings.Get("PhoneCannotAnswer")}" : label;
+    }
+
+    private void OnFoundPhoneClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: LanDiscovery.Device device }) _ = ConnectToAsync(device);
+    }
+
+    /// <summary>
+    /// A phone appeared, moved or stopped sharing. Re-runs the same judgement
+    /// the keystroke would have: someone who types two digits in under a second
+    /// can easily beat the first beacon, and without this they are left looking
+    /// at "still looking" while the phone sits in the list right below it.
+    /// </summary>
+    /// <summary>
+    /// The code this session paired with, or null when we arrived by a route
+    /// that has none — the eight-character code, or a QR.
+    ///
+    /// A code is drawn once per sharing session and kept for its life
+    /// (/shared/pairing-beacon.md), so it is the only stable name the phone
+    /// has across a change of address.
+    /// </summary>
+    private string? _pairedCode;
+
+    private void OnDevicesChanged()
+    {
+        // Before the panel checks below: while connected the visible panel is
+        // neither of them, and following the phone matters most exactly then.
+        FollowIfMoved();
+
+        if (ReferenceEquals(_visiblePanel, IdlePanel))
+        {
+            PopulateIdleList();
+            return;
+        }
+        if (!ReferenceEquals(_visiblePanel, CodePanel)) return;
+        PopulateFoundList();
+        EvaluateCode(mayConnect: true);
+    }
+
+    /// <summary>
+    /// Re-points a live tunnel when the phone we paired with starts announcing
+    /// itself from somewhere else.
+    ///
+    /// Matching on the code alone is safe here only because the tunnel is still
+    /// up: sharing stopping kills it, so a phone that restarted sharing — and
+    /// therefore drew a fresh code and fresh keys — cannot be what this is
+    /// looking at. See /shared/pairing-beacon.md → "Following a phone that
+    /// changes address".
+    /// </summary>
+    /// <summary>
+    /// Renders, and keeps the two things that outlive the window in step with
+    /// the state: whether we are still probing, and which phone we are allowed
+    /// to follow.
+    /// </summary>
+    private void OnStateChanged()
+    {
+        if (_controller.StateName != "Connected")
+        {
+            // The session that drew this code is over. Keeping it would let the
+            // next phone to draw the same two digits look like ours.
+            _pairedCode = null;
+        }
+        UpdateProbing();
+        Render();
+    }
+
+    private void FollowIfMoved()
+    {
+        if (_pairedCode is null || _controller.StateName != "Connected") return;
+
+        var moved = _discovery.Devices.FirstOrDefault(d =>
+            d.Code == _pairedCode && d.Mode == QrPayload.ModeWireguard);
+        if (moved is null) return;
+
+        // RoamAsync is a no-op when the address has not actually changed, which
+        // is every beacon but the one that matters.
+        _ = _controller.RoamAsync(moved.Host, moved.PortNumber);
+    }
+
+    /// <summary>
+    /// Hands a resolved phone to the controller. Guarded, because two paths can
+    /// arrive here at once — the keystroke that completed the code and the
+    /// beacon that arrived in the same moment — and connecting twice tears the
+    /// first attempt down underneath itself.
+    /// </summary>
+    private async Task ConnectToAsync(LanDiscovery.Device device)
+    {
+        if (_connecting) return;
+
+        // The beacon cannot carry keys — it is broadcast, and anything on the
+        // network can read it — so a code alone is not a pairing. The phone
+        // offers a port to ask on instead, and a phone that could not bind that
+        // port says so by leaving it out. Then the QR is the only way in, and
+        // saying that is better than "That's not a Relay code." in front of a
+        // perfectly correct one, which reads as the two apps being incompatible.
+        if (!device.CanPairByCode)
+        {
+            ShowLocalError("ERR_FULL_MODE_NEEDS_QR");
+            return;
+        }
+
+        // Broadcast hints cannot authenticate a fault or prevent pinned TLS recovery.
+        _connecting = true;
+        _localError = null;
+        _lastAttempt = () => RetryPhoneAsync(device);
+        try
+        {
+            var payload = await PairAsync(device.Host, device.PairingPort!.Value, device.Name);
+            if (payload is null) return; // PairAsync surfaced the reason
+            await _controller.ConnectAsync(payload);
+
+            // After, not before: connecting passes through states that are not
+            // Connected, and OnStateChanged clears the code on every one of
+            // them, so a code set up front would be gone by the time it was
+            // wanted.
+            if (_controller.StateName == "Connected") _pairedCode = device.Code;
+        }
+        finally
+        {
+            _connecting = false;
+        }
+    }
+
+    /// <summary>
+    /// The same phone again, found afresh by its code: by the time someone
+    /// presses Try Again it may have moved to a new address, and the device
+    /// remembered from the first attempt would dial the old one.
+    /// </summary>
+    private Task RetryPhoneAsync(LanDiscovery.Device previous)
+    {
+        var fresh = _discovery.MatchPhones(previous.Code);
+        return ConnectToAsync(fresh.Count == 1 ? fresh[0] : previous);
+    }
+
+    private async void OnCodeConnectClick(object sender, RoutedEventArgs e)
+    {
+        if (!_longCode)
+        {
+            var digits = LanDiscovery.NormalizeCode(CodeBox.Text);
+            if (digits is null)
+            {
+                ShowLocalError("ERR_CODE_INVALID");
+                return;
+            }
+            var matches = _discovery.MatchPhones(digits);
+            if (matches.Count != 1)
+            {
+                // Zero means the phone is not sharing or is on another network;
+                // more than one needs a human to choose. Neither is a malformed
+                // code, so neither says so.
+                ShowLocalError(matches.Count == 0 ? "ERR_CODE_NOT_FOUND" : "ERR_CODE_AMBIGUOUS");
+                return;
+            }
+            await ConnectToAsync(matches[0]);
+            return;
+        }
+
+        var decoded = TypedCode.Decode(TypedCode.Normalize(CodeBox.Text));
+        if (decoded is null)
+        {
+            ShowLocalError("ERR_CODE_INVALID");
+            return;
+        }
+        // The eight-character code carries an address and nothing else. Since
+        // ADR-0009 that is enough: ask at that address, on the port every phone
+        // offers, and the keys come back over the exchange.
+        _localError = null;
+        var host = decoded.Value.Host;
+        _lastAttempt = async () =>
+        {
+            var again = await PairAsync(host, PairingDefaultPort, null);
+            if (again is not null) await _controller.ConnectAsync(again);
+        };
+        await _lastAttempt();
+    }
+
+    /// <summary>Where a phone offers configurations (/shared/pairing-beacon.md).</summary>
+    private const int PairingDefaultPort = 47655;
+
+    /// <summary>
+    /// Asks a phone for a configuration, and turns it into something dialable.
+    ///
+    /// This blocks on a person: the phone holds the request until someone taps
+    /// Allow, for up to a minute. So the window says what it is waiting for
+    /// rather than appearing to hang — "look at your phone" is the whole
+    /// instruction, and a spinner alone would not give it.
+    /// </summary>
+    private readonly SavedClientIdentity _savedIdentities = SavedClientIdentity.CurrentUser;
+    private readonly EnrollmentRecovery _enrollmentRecovery = new();
+
+    private Task<bool> ConfirmFingerprintAsync(string pin)
+    {
+        if (_verification is not null || !AppWindow.IsVisible) return Task.FromResult(false);
+        var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _verification = pending;
+        VerifyPin.Text = pin;
+        VerificationOverlay.Visibility = Visibility.Visible;
+        VerificationOverlay.UpdateLayout();
+        VerifyCancel.Focus(FocusState.Programmatic);
+        Workspace.IsEnabled = false;
+        Motion.EnterPanel(VerificationCard);
+        UpdateSearchMotion();
+        Announce(VerifyTitle);
+        return pending.Task;
+    }
+
+    private void OnVerifyMatch(object sender, RoutedEventArgs e) => FinishVerification(true);
+    private void OnVerifyCancel(object sender, RoutedEventArgs e) => FinishVerification(false);
+
+    private void FinishVerification(bool matches)
+    {
+        if (_verification is not { } pending) return;
+        _verification = null;
+        VerifyPin.Text = string.Empty;
+        VerificationOverlay.Visibility = Visibility.Collapsed;
+        Workspace.IsEnabled = true;
+        FocusPrimary();
+        UpdateSearchMotion();
+        pending.TrySetResult(matches);
+    }
+
+    private async Task<QrPayload?> PairAsync(string host, int pairingPort, string? name, string? trustedPin = null)
+    {
+        BusyText.Text = Strings.Get("BusyPairing");
+        // The name the phone is shown, so the two screens can be checked
+        // against each other (P-15). PairingClient sends this same name.
+        BusyDetailText.Text = Strings.Format("BusyPairingDetail", Environment.MachineName);
+        _mode = InputMode.Pairing;
+        Render();
+
+        PairingClient.Result result;
+        try {
+            var pin=trustedPin;
+            ClientIdentity? saved;
+            if(pin is null) {
+                pin=await PairingClient.ProbeUntrustedFingerprintAsync(host,pairingPort);
+                saved = await _savedIdentities.ReadAsync(pin);
+                if (_mode != InputMode.Pairing || (saved is null && !await ConfirmFingerprintAsync(pin)))
+                {
+                    _mode = InputMode.None;
+                    Render();
+                    return null;
+                }
+            } else saved = await _savedIdentities.ReadAsync(pin);
+            result=await _enrollmentRecovery.EnrollAsync(pin,
+                async () => saved ?? await ClientIdentity.GenerateAsync(Path.Combine(AppContext.BaseDirectory,"linqavo-wg.exe")),
+                async identity =>
+                {
+                    var enrolled = await new PairingClient().FetchPinnedAsync(host, pairingPort, pin,
+                        identity.PublicKey, identity.PrivateKey, Environment.MachineName);
+                    if (enrolled.Ok && saved != identity) await _savedIdentities.SaveAsync(pin, identity);
+                    return enrolled;
+                },
+                identity=>BusyDetailText.Text=Strings.Format("EnrollmentClient",identity.Fingerprint),
+                () => { _savedIdentities.Forget(pin); saved = null; });
+        } catch {result=PairingClient.Result.Fail("ERR_HOST_UNREACHABLE");}
+
+        // Both lines, not just the headline: leaving the pairing detail behind
+        // put "Tap Allow on your phone" under "Setting up the connection", which
+        // is an instruction for a prompt that has already been answered.
+        _mode = InputMode.None;
+        BusyText.Text = Strings.Get("BusyConnecting");
+        BusyDetailText.Text = Strings.Get("BusyDetail");
+
+        if (!result.Ok)
+        {
+            ShowLocalError(result.ErrorCode ?? "ERR_HOST_UNREACHABLE");
+            return null;
+        }
+
+        return new QrPayload
+        {
+            V = 2,
+            Mode = QrPayload.ModeWireguard,
+            Host = result.Host ?? host,
+            Port = result.Port,
+            Name = name,
+            Wg = result.Wg,
+        };
+    }
+
+    /// <summary>
+    /// Samples the tunnel once a second while it is up.
+    ///
+    /// One second is the slowest interval at which a rate still feels live, and
+    /// the fastest at which it does not jitter: shorter windows turn ordinary
+    /// TCP burstiness into a number that flickers too much to read. Latency is
+    /// measured every fifth tick instead, because a ping every second on a
+    /// metered phone connection is traffic Relay charged the user for in order
+    /// to display a number.
+    /// </summary>
+    private void StartStats()
+    {
+        if (_statsTimer is not null) return;
+        _stats.Begin(DateTimeOffset.UtcNow);
+        _latency = null;
+        _latencyTick = 0;
+        _statsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _statsTimer.Tick += (_, _) => SampleStats();
+        _statsTimer.Start();
+        SampleStats();
+    }
+
+    private void StopStats()
+    {
+        _statsTimer?.Stop();
+        _statsTimer = null;
+        _stats.Reset();
+        _latency = null;
+    }
+
+    private void SampleStats()
+    {
+        if (_latencyTick++ % 5 == 0)
+        {
+            var peer = WgClientConfig.ServerTunnelAddress;
+            // Off the UI thread: a ping that times out would otherwise freeze the
+            // window for its full timeout, which is exactly the moment someone is
+            // watching it to see whether the connection is alive.
+            _ = Task.Run(() =>
+            {
+                var measured = TunnelStats.PingPeer(peer);
+                DispatcherQueue.TryEnqueue(() => _latency = measured);
+            });
+        }
+
+        var reading = _stats.Update(DateTimeOffset.UtcNow, _latency);
+        if (reading is null)
+        {
+            ShowStatsUnreadable();
+            RefreshMini();
+            return;
+        }
+        var r = reading.Value;
+
+        StatDownRate.Text = $"↓ {FormatRate(r.DownPerSecond)}";
+        StatUpRate.Text = $"↑ {FormatRate(r.UpPerSecond)}";
+        StatDownTotal.Text = $"{Strings.Get("StatDown")} {FormatBytes(r.Received)}";
+        StatUpTotal.Text = $"{Strings.Get("StatUp")} {FormatBytes(r.Sent)}";
+        StatLatency.Text = r.Latency is { } l
+            ? $"{Strings.Get("StatLatency")} {Strings.Format("UnitMs", ((int)l.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture))}"
+            : Strings.Get("StatLatencyUnknown");
+        StatDuration.Text = $"{Strings.Get("StatConnectedFor")} {TunnelStats.Duration(r.Duration)}";
+        RefreshMini();
+    }
+
+    /// <summary>
+    /// The stats card when the adapter cannot be read.
+    ///
+    /// Two faults, not one. <c>TunnelStats.Update</c> returns null whenever the
+    /// adapter will not answer, and the caller used to simply return — so a
+    /// tunnel whose adapter was never readable showed an **empty sunken box,
+    /// forever**: five of the six TextBlocks have no Text in XAML, and
+    /// StatLatencyUnknown was the only field with a designed unknown state.
+    ///
+    /// The second is worse. If the adapter stops answering *mid-session*, an
+    /// early return leaves the last good numbers frozen on screen, and a frozen
+    /// rate reads as a live one. That is the interface claiming a reading it
+    /// does not have, which the product's first principle forbids. An unknown
+    /// value renders as unknown.
+    ///
+    /// The labels stay: "— " on its own says nothing about which figure is
+    /// missing, and they are the localised half of each line.
+    /// </summary>
+    /// <summary>
+    /// A byte count with its unit in the reader's language. The units were
+    /// English literals in Core, the only words in the stats panel with no
+    /// Persian (P-18). Keys are spelt out so the coverage test can see them.
+    /// </summary>
+    private static string FormatBytes(long value)
+    {
+        var (number, unit) = TunnelStats.BytesParts(value);
+        return unit switch
+        {
+            "KB" => Strings.Format("UnitKB", number),
+            "MB" => Strings.Format("UnitMB", number),
+            "GB" => Strings.Format("UnitGB", number),
+            "TB" => Strings.Format("UnitTB", number),
+            _ => Strings.Format("UnitB", number),
+        };
+    }
+
+    private static string FormatRate(double bytesPerSecond) =>
+        Strings.Format("UnitPerSecond", FormatBytes((long)bytesPerSecond));
+
+    private void ShowStatsUnreadable()
+    {
+        StatDownRate.Text = $"↓ {Unreadable}";
+        StatUpRate.Text = $"↑ {Unreadable}";
+        StatDownTotal.Text = $"{Strings.Get("StatDown")} {Unreadable}";
+        StatUpTotal.Text = $"{Strings.Get("StatUp")} {Unreadable}";
+        StatLatency.Text = Strings.Get("StatLatencyUnknown");
+        StatDuration.Text = $"{Strings.Get("StatConnectedFor")} {Unreadable}";
+    }
+
+    /// <summary>An em dash: the figure is not known. Punctuation, so it needs no locale.</summary>
+    private const string Unreadable = "—";
+
+    /// <summary>The recovery the error itself suggests, so there is always a way forward.</summary>
+    private async void OnErrorPrimaryClick(object sender, RoutedEventArgs e)
+    {
+        var action = _errorAction;
+        _localError = null;
+        switch (action)
+        {
+            case "ScanQr":
+                _controller.DismissError();
+                OnScanClick(sender, e);
+                break;
+            case "EnterCode":
+            case "EnterCodeInstead":
+                _controller.DismissError();
+                OnEnterCodeClick(sender, e);
+                break;
+            case "Disconnect":
+                await _controller.DisconnectAsync();
+                break;
+            default:
+                _controller.DismissError();
+                _mode = InputMode.None;
+                Render();
+                if (action == "TryAgain" && _lastAttempt is { } again) await again();
+                break;
+        }
+    }
+
+    // --- shared handlers -----------------------------------------------------------
+
+    /// <summary>Backs out of scanning, code entry, or a local error — whichever is up.</summary>
+    private void OnCancelClick(object sender, RoutedEventArgs e)
+    {
+        // Escape reaches here from the error surface too, and a cancel that
+        // leaves the error still on screen is a key that appears to do nothing.
+        _localError = null;
+        StopScanning();
+    }
+
+    /// <summary>
+    /// Cancels an in-flight connection attempt. "stop" is a legal transition out
+    /// of both Preparing and Advertising, and ConnectAsync already unwinds a
+    /// proxy it applied if the state moved underneath it — so this genuinely
+    /// aborts the attempt rather than only hiding the progress ring.
+    /// </summary>
+    private async void OnBusyCancelClick(object sender, RoutedEventArgs e)
+    {
+        _localError = null;
+        _mode = InputMode.None;
+        await _controller.DisconnectAsync();
+    }
+
+    private async void OnDisconnectClick(object sender, RoutedEventArgs e) =>
+        await _controller.DisconnectAsync();
+
+    private async void OnDismissClick(object sender, RoutedEventArgs e)
+    {
+        // For a failed rollback the action is "retry the disconnect", not dismiss.
+        if (_localError is null && _controller.ErrorCode == "ERR_ROLLBACK_INCOMPLETE")
+        {
+            await _controller.DisconnectAsync();
+            return;
+        }
+        _localError = null;
+        _controller.DismissError();
+        Render();
+    }
+
+    private void ShowLocalError(string code)
+    {
+        _localError = code;
+        _mode = InputMode.None;
+        Render();
+    }
+}

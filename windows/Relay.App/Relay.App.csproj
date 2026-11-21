@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Linqavo</AssemblyName>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RootNamespace>Linqavo.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged deployment: EXE installer, not MSIX (ADR-0005). -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- MUST stay true even though unpackaged: this pulls in the MakePri targets
+         that generate the app's resources.pri, which indexes ms-appx:///*.xaml.
+         With it false, no resources.pri was produced and every window failed to
+         load at runtime (XamlParseException). -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <!-- The icon Windows itself shows: Explorer, the taskbar, Alt-Tab, the Start
+         list, the pinned tile and the shortcut the installer creates. Without it
+         an unpackaged WinUI app gets the generic .NET placeholder everywhere,
+         which is the first thing a person sees and the last thing that says
+         "finished software". Assets\Linqavo.ico carries 16→256 so Windows picks
+         the right one instead of scaling 32 up to a 256px tile. -->
+    <ApplicationIcon>Assets\Linqavo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.241114003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.1.3" />
+    <PackageReference Include="ZXing.Net" Version="0.16.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Relay.Core\Relay.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\TrayIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Also copied, not only compiled in as the EXE icon: the installer points
+         the Start-menu and desktop shortcuts at this file. -->
+    <Content Include="Assets\Linqavo.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- MRT generates this on Build, but SDK Publish omitted it locally. A
+       successful publish without it crashes at launch. Require and include the
+       matching architecture's generated resource index when skipping Build. -->
+  <Target Name="PublishForkResourceIndex" AfterTargets="ComputeFilesToPublish">
+    <Error Condition="!Exists('$(TargetDir)resources.pri')"
+           Text="resources.pri is missing. Build this exact platform/runtime before publishing." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(TargetDir)resources.pri">
+        <RelativePath>resources.pri</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

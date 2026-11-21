@@ -1,0 +1,44 @@
+# --- General ---
+.DS_Store
+Thumbs.db
+*.log
+
+# CPython caches the CI scripts next to them the first time they are imported.
+__pycache__/
+*.py[cod]
+
+# --- Android / Gradle ---
+android/.gradle/
+android/build/
+android/**/build/
+android/local.properties
+android/.idea/
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+# AGP 9 / Kotlin 2.4 write compiler session files here. They are per-machine
+# build state and one of them was committed before this line existed.
+android/.kotlin/
+*.apk
+*.aab
+*.keystore
+*.jks
+# Full Mode's forwarder, built from /wg by scripts/build-wg-aar.sh. A build
+# output, not a source: ~10 MB of compiled Go per checkout, and a committed copy
+# would drift from /wg the first time anyone changed it. The whole directory,
+# because gomobile drops a sources jar beside the AAR.
+android/app/libs/
+
+# --- Windows / .NET ---
+windows/**/bin/
+windows/**/obj/
+windows/**/*.user
+windows/.vs/
+windows/**/Generated Files/
+*.msix
+*.msixbundle
+
+# --- IDE ---
+.idea/
+.vscode/
+*.iml

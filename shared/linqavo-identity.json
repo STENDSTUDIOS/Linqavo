@@ -1,0 +1,14 @@
+{
+  "name": "Linqavo",
+  "androidApplicationId": "io.relay.fork",
+  "windowsInstallerId": "C1B8B487-84FD-4C72-9CC8-91B27D723D87",
+  "windowsAssemblyName": "Linqavo",
+  "windowsDataDirectory": "Linqavo",
+  "windowsRegistryKey": "Software\\Linqavo",
+  "windowsMutex": "Local\\RelayForkAppSingleton",
+  "windowsPipePrefix": "linqavo-wg-",
+  "windowsAdapter": "Linqavo",
+  "wireguardPort": 51821,
+  "discoveryPort": 47656,
+  "pairingPort": 47657
+}

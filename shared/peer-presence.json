@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "transport": "TCP inside the authenticated WireGuard tunnel only",
+  "address": "10.13.37.1:47658",
+  "preface": "RLYP0002",
+  "legacyPreface": "RLYP0001",
+  "serverEvents": {"S":"server-stopped","X":"client-disabled","R":"enrollment-revoked"},
+  "serverEventAckMilliseconds": 500,
+  "ticketBytes": 16,
+  "frameBytes": 17,
+  "heartbeatSeconds": 10,
+  "replyTimeoutSeconds": 5,
+  "reconnectingAfterSeconds": 25,
+  "offlineAfterSeconds": 35,
+  "disconnectWaitMilliseconds": 1000,
+  "maximumControlStreams": 6,
+  "maximumControlStreamsPerPeer": 2,
+  "states": ["authorized", "connected", "degraded", "reconnecting", "offline", "unknown", "disabled"],
+  "rules": [
+    "WireGuard cryptokey routing authenticates the source /32 to an approved public key; never expose this port to LAN TCP or UDP",
+    "server sends preface plus a fresh random ticket; every H heartbeat or D disconnect must echo that stream ticket; A acknowledges",
+    "only a valid heartbeat installs a newer server-issued stream generation; delayed openings, messages and close events from superseded streams cannot change the new generation",
+    "a valid D marks presence offline without disabling, revoking or freeing the identity/address; the client then closes its tunnel even when acknowledgement fails",
+    "a missed heartbeat first means reconnecting; a managed peer with recent forwarded replies is degraded when control is unhealthy, unless it sent an authenticated goodbye",
+    "a server event may arrive after the first heartbeat is sent and before its acknowledgement; the client validates the ticket and handles that event immediately",
+    "legacy peers without presence use changes in authenticated inbound WireGuard bytes, including keepalives, with a 35-second monotonic lease; outbound bytes never renew presence",
+    "native status failure means unknown, not disappearance of authorization",
+    "all authorized records, including offline and disabled peers, consume the unchanged maximum-three capacity",
+    "server restart clears authorization and presence together; no stream ticket is reusable across endpoints"
+  ]
+}

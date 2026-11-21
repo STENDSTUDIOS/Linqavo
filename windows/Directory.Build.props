@@ -1,0 +1,28 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)..\shared\LinqavoVersion.props" />
+
+  <!--
+    Version stamping for every .NET project under windows/.
+
+    Nothing used to set this. The SDK's default AssemblyVersion is 1.0.0.0, so
+    the app's diagnostic report — the only place a Windows user ever sees a
+    version — announced "1.0.0" from v1.0.0 through v1.7.0, while Add/Remove
+    Programs and the installer filename both said the real number. Field reports
+    were therefore untriageable, and the one question that mattered most in
+    August 2026 ("are these two downloads the same build?") could not be asked.
+
+    Shared fork configuration versions local builds and releases identically.
+    Directory.Build.targets rejects an inconsistent command-line override.
+  -->
+  <PropertyGroup>
+    <Version>$(LinqavoVersion)</Version>
+    <!-- Numeric versions include the fork iteration; displayed version keeps its label. -->
+    <AssemblyVersion>$(LinqavoAssemblyVersion)</AssemblyVersion>
+    <FileVersion>$(LinqavoAssemblyVersion)</FileVersion>
+    <InformationalVersion>$(LinqavoVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Company>Linqavo maintainers</Company>
+    <Product>Linqavo</Product>
+  </PropertyGroup>
+
+</Project>

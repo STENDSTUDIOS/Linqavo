@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <LinqavoVersion>1.1.0</LinqavoVersion>
+    <LinqavoVersionCode>21101102</LinqavoVersionCode>
+    <LinqavoAssemblyVersion>1.1.0.0</LinqavoAssemblyVersion>
+  </PropertyGroup>
+</Project>

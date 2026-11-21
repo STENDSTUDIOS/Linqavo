@@ -1,0 +1,635 @@
+using System.Diagnostics;
+
+namespace Linqavo.Core;
+
+/// <summary>
+/// Runs Full Mode's tunnel: starts <c>linqavo-wg.exe</c>, hands it the
+/// configuration, and stops it again.
+///
+/// The tunnel lives in a child process because creating a WinTun adapter and
+/// changing routes needs Administrator, and Relay is a per-user install that
+/// never asks for it anywhere else (ADR-0005, ADR-0008). This class is the
+/// whole of the app's dealings with that privilege: everything above it works
+/// in terms of "connected" and "disconnected".
+///
+/// Kept out of <c>Relay.App</c> and free of any UI type so it can be tested
+/// against a stub process on a machine with no adapter and no elevation. What
+/// only a real Windows machine can prove — that the adapter comes up and
+/// carries traffic — is proven by the client's own test, on a runner.
+/// </summary>
+public sealed class WgTunnelSession(WgTunnelSession.IProcessHost processHost)
+{
+    /// <summary>Error codes are the stable identifiers from docs/errors.md.</summary>
+    public sealed record Result(bool Ok, string? ErrorCode = null)
+    {
+        public static readonly Result Success = new(true);
+        public static Result Fail(string code) => new(false, code);
+    }
+
+    /// <summary>
+    /// The child process, behind an interface so the lifecycle can be tested
+    /// without one. A test that has to launch a real elevated process to check
+    /// "what happens when the person clicks No on the UAC prompt" is a test
+    /// nobody can run.
+    /// </summary>
+    public interface IProcessHost
+    {
+        /// <summary>
+        /// Starts the tunnel process. Throws <see cref="ElevationDeclined"/> if
+        /// the person dismissed the UAC prompt.
+        /// </summary>
+        IProcessHandle Start(string arguments);
+    }
+
+    public interface IProcessHandle : IDisposable
+    {
+        /// <summary>Writes a line to the child's stdin.</summary>
+        void WriteLine(string line);
+
+        /// <summary>
+        /// Reads one line of the child's stdout. Null means end of stream — the
+        /// child is gone. An empty string means "nothing yet"; implementations
+        /// must not block indefinitely, because the caller's timeout is only
+        /// re-checked between calls.
+        /// </summary>
+        string? ReadLine();
+
+        /// <summary>Closes stdin, which is how the child is asked to stop.</summary>
+        void CloseInput();
+
+        /// <summary>Waits for exit; false if it did not within the timeout.</summary>
+        bool WaitForExit(TimeSpan timeout);
+
+        /// <summary>Last resort when it will not leave on its own.</summary>
+        void Kill();
+
+        bool HasExited { get; }
+    }
+
+    /// <summary>Thrown when the person answered No to the elevation prompt.</summary>
+    public sealed class ElevationDeclined(Exception? inner = null)
+        : Exception("The elevation prompt was declined", inner);
+
+    /// <summary>
+    /// Thrown when Windows refuses to elevate anything from where Relay is
+    /// installed, so no prompt is ever shown.
+    ///
+    /// Seen on a real machine: %LOCALAPPDATA%\Programs was a junction to another
+    /// drive, and the elevation broker -- which runs as SYSTEM and resolves the
+    /// path itself -- returned ERROR_PATH_NOT_FOUND for every executable behind
+    /// it, Relay.App.exe included. The same binary copied outside the junction
+    /// elevated normally.
+    ///
+    /// Its own error because nothing the user could do about a tunnel failure
+    /// helps here: the install location is the problem, and no amount of closing
+    /// other VPNs will change it.
+    /// </summary>
+    public sealed class ElevationUnavailable(Exception? inner = null)
+        : Exception("Windows would not elevate from this location", inner);
+
+    /// <summary>What the client prints once traffic can flow — i.e. once the peer has handshaked.</summary>
+    public const string ReadyLine = "READY";
+
+    /// <summary>
+    /// What the client prints when the adapter came up but the peer never
+    /// answered. Its own code because the next action differs from a tunnel
+    /// that would not start: the QR is stale and needs rescanning, since the
+    /// phone mints fresh keys every time sharing restarts.
+    /// </summary>
+    public const string NoHandshakeLine = "NO-HANDSHAKE";
+
+    /// <summary>Ends the configuration without closing stdin. Must match the client.</summary>
+    public const string ConfigTerminator = "END-CONFIG";
+
+    /// <summary>
+    /// Prefix of the line that moves the tunnel to the phone's new address.
+    /// Must match the client.
+    /// </summary>
+    public const string EndpointPrefix = "ENDPOINT ";
+
+    /// <summary>What the client takes to stop closing the paths around the tunnel.</summary>
+    public const string DisableLeakBlockArgument = "-block-leaks=false";
+
+    /// <summary>
+    /// Printed by the client when it could not close the paths around the
+    /// tunnel. It always can't today — see the long comment in the client — and
+    /// the point of carrying it over the pipe rather than to stderr is that the
+    /// app must never show "protected" over a tunnel that is not.
+    /// </summary>
+    public const string LeakProtectionFailedLine = "LEAK-PROTECTION-FAILED";
+
+    /// <summary>
+    /// The kill switch (#165): the client keeps the tunnel, and with it the
+    /// machine's default route, when the phone stops answering, so nothing
+    /// leaves by the Wi-Fi adapter instead. Must match the client's flag.
+    /// </summary>
+    public const string HoldOnLossArgument = "-hold-on-loss";
+
+    /// <summary>Printed by a holding client when the phone stops answering. Must match the client.</summary>
+    public const string PeerLostLine = "PEER-LOST";
+
+    /// <summary>Printed by a holding client when the phone answers again. Must match the client.</summary>
+    public const string PeerBackLine = "PEER-BACK";
+    public const string TunnelReadyLine = "TUNNEL-READY";
+    public const string PresenceDegradedLine = "PRESENCE-DEGRADED";
+
+    /// <summary>
+    /// Raised when forwarding or control state changes with either hold
+    /// policy. Without hold-on-loss, helper exit also closes the tunnel. Fires
+    /// on a worker thread.
+    /// </summary>
+    public event Action<bool>? PeerLostChanged;
+    public event Action<string>? LifecycleTrace;
+
+    /// <summary>True while forwarding is unconfirmed or access has been withdrawn.</summary>
+    public bool PeerLost { get; private set; }
+    public bool PresenceDegraded { get; private set; }
+    public string? LifecycleErrorCode {get;private set;}
+    public static string? ClassifyLifecycleLine(string line) => line switch {
+        "SERVER-STOPPED" => "ERR_SERVER_STOPPED",
+        "SERVER-UNAVAILABLE" => "ERR_SERVER_UNAVAILABLE",
+        "FORWARDING-UNAVAILABLE" => "ERR_FORWARDING_UNAVAILABLE",
+        "CLIENT-DISABLED" => "ERR_CLIENT_DISABLED",
+        "ENROLLMENT-REVOKED" => "ERR_ENROLLMENT_REVOKED",
+        "TRANSPORT-FAILED" => "ERR_TRANSPORT_FAILURE",
+        "ROUTING-FAILED" => "ERR_ROUTING_ERROR",
+        _ => null,
+    };
+
+    /// <summary>True when the last connection came up without leak protection.</summary>
+    public bool LeakProtectionUnavailable { get; private set; }
+
+    /// <summary>How long to wait for the adapter. Creating one is slow the first time.</summary>
+    public static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(45);
+
+    private IProcessHandle? _tunnel;
+    private ManualResetEventSlim? _monitorDone;
+    public string ExitErrorCode() {
+        if(!IsRunning)_monitorDone?.Wait(TimeSpan.FromSeconds(1));
+        return LifecycleErrorCode ?? "ERR_SERVER_UNAVAILABLE";
+    }
+
+    public bool IsRunning => _tunnel is { HasExited: false };
+
+    /// <summary>
+    /// Brings the tunnel up from the QR's <c>wg</c> block.
+    ///
+    /// Nothing on this machine is changed before the child starts, and
+    /// everything it changes goes away with it, so a failure at any point here
+    /// needs no rollback of its own — which is why this reads so much simpler
+    /// than <see cref="Proxy.ProxySession"/>, where Relay edits the registry
+    /// itself and has to be able to put it back.
+    /// </summary>
+    /// <param name="blockLeaks">
+    /// Close the paths that go around the tunnel. Defaults to true here as well
+    /// as in the client, so a caller that forgets still fails closed.
+    /// </param>
+    /// <param name="holdOnLoss">
+    /// The kill switch: keep blocking rather than fall back to the physical
+    /// adapter when the phone stops answering. See <see cref="HoldOnLossArgument"/>.
+    /// </param>
+    public Result Connect(WgParams wg, string host, bool blockLeaks = true, bool holdOnLoss = false)
+    {
+        if (IsRunning) return Result.Fail("ERR_WG_ALREADY_RUNNING");
+
+        string config;
+        try
+        {
+            config = WgClientConfig.ToIpc(wg, host);
+        }
+        catch (ArgumentException)
+        {
+            // The payload cannot produce a tunnel. Saying "the QR is unusable"
+            // is honest; letting the child fail on it would report the same
+            // thing as a tunnel that could not start, which sends someone
+            // looking at their network for a fault in a QR code.
+            return Result.Fail("ERR_QR_INVALID");
+        }
+
+        IProcessHandle tunnel;
+        try
+        {
+            tunnel = processHost.Start(Arguments(wg, blockLeaks, holdOnLoss));
+        }
+        catch (ElevationDeclined)
+        {
+            return Result.Fail("ERR_WG_ELEVATION_DECLINED");
+        }
+        catch (ElevationUnavailable)
+        {
+            return Result.Fail("ERR_WG_ELEVATION_UNAVAILABLE");
+        }
+        catch (Exception)
+        {
+            return Result.Fail("ERR_WG_START_FAILED");
+        }
+
+        try
+        {
+            foreach (var line in config.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                tunnel.WriteLine(line);
+            }
+            tunnel.WriteLine(ConfigTerminator);
+        }
+        catch (Exception)
+        {
+            Stop(tunnel);
+            return Result.Fail("ERR_WG_START_FAILED");
+        }
+
+        var failure = WaitForReady(tunnel, out var unprotected, out var forwardingPending);
+        if (failure is not null)
+        {
+            Stop(tunnel);
+            return Result.Fail(failure);
+        }
+
+        _tunnel = tunnel;
+        LeakProtectionUnavailable = unprotected;
+        PeerLost = forwardingPending;
+        PresenceDegraded = false;
+        LifecycleErrorCode = null;
+        WatchPeer(tunnel);
+        return Result.Success;
+    }
+
+    /// <summary>
+    /// Listens for presence state and typed lifecycle reasons from the helper.
+    ///
+    /// Its own thread, because a read on the pipe blocks and this lasts for the
+    /// whole session. It ends by itself when the pipe does: Disconnect closes
+    /// it, and so does the client exiting.
+    /// </summary>
+    private void WatchPeer(IProcessHandle tunnel)
+    {
+        var monitorDone=new ManualResetEventSlim();_monitorDone=monitorDone;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                while (true)
+                {
+                    if (!ReferenceEquals(_tunnel,tunnel)) return;
+                    var line = tunnel.ReadLine();
+                    if (line is null) return;
+                    if (line.Length==0) { Thread.Sleep(10); continue; }
+                    var trimmed = line.Trim();
+                    if (!ReferenceEquals(_tunnel, tunnel)) return;
+                    if (trimmed.StartsWith("TRACE role=windows ", StringComparison.Ordinal) &&
+                        trimmed.Length <= 512 && Environment.GetEnvironmentVariable("RELAY_LIFECYCLE_DIAGNOSTICS") == "1")
+                    {
+                        LifecycleTrace?.Invoke(trimmed);
+                        continue;
+                    }
+                    var reason=ClassifyLifecycleLine(trimmed);
+                    if(reason is not null) {
+                        LifecycleErrorCode = reason;
+                        PresenceDegraded = false;
+                        PeerLost = true;
+                        PeerLostChanged?.Invoke(true);
+                        continue;
+                    }
+                    bool lost;
+                    if (trimmed == PeerLostLine) lost = true;
+                    else if (trimmed is PeerBackLine or PresenceDegradedLine) lost = false;
+                    else {Thread.Sleep(10);continue;}
+                    // Only for the tunnel that is still this session's: a line
+                    // from one being torn down must not repaint the next.
+                    if (!ReferenceEquals(_tunnel, tunnel)) return;
+                    PeerLost = lost;
+                    PresenceDegraded = trimmed == PresenceDegradedLine;
+                    if(!lost)LifecycleErrorCode=null;
+                    PeerLostChanged?.Invoke(lost);
+                }
+            }
+            catch (Exception)
+            {
+                // The pipe closing under a blocked read is the ordinary way out.
+            }
+            finally { monitorDone.Set(); }
+        })
+        {
+            IsBackground = true,
+            Name = "Linqavo tunnel peer watch",
+        };
+        thread.Start();
+    }
+
+    /// <summary>
+    /// Follows the phone to a new address, keeping the tunnel that is already
+    /// up (/shared/pairing-beacon.md → "Following a phone that changes
+    /// address").
+    ///
+    /// A phone's address is a DHCP lease and the PC is the WireGuard initiator,
+    /// which is the direction WireGuard's own roaming does not cover — so a
+    /// renewed lease used to end the session some minutes later, reported as
+    /// the phone having gone away.
+    ///
+    /// Returns false rather than an error code because nothing here is worth
+    /// interrupting a working session for: the caller logs it, and if the phone
+    /// really has gone then the tunnel dies on its own and
+    /// <c>ERR_CONNECTION_LOST</c> says so from the one place that watches.
+    /// </summary>
+    public bool Roam(string host, int port)
+    {
+        var tunnel = _tunnel;
+        if (tunnel is null || tunnel.HasExited) return false;
+
+        try
+        {
+            tunnel.WriteLine($"{EndpointPrefix}{host}:{port}");
+            return true;
+        }
+        catch (Exception)
+        {
+            // The pipe is also how Disconnect is signalled, so a write failing
+            // here is very likely a tunnel that is already going down.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Takes the tunnel down. Safe to call when nothing is running, and safe to
+    /// call twice: it runs on paths that are already unwinding from a failure.
+    /// </summary>
+    public Result Disconnect()
+    {
+        var tunnel = _tunnel;
+        _tunnel = null;
+        PeerLost = false;
+        PresenceDegraded = false;
+        if (tunnel is null) return Result.Success;
+
+        return Stop(tunnel) ? Result.Success : Result.Fail("ERR_WG_STOP_FAILED");
+    }
+
+    /// <summary>
+    /// Closing stdin is the ordinary way out; the kill is for a child that has
+    /// wedged. Either way the adapter goes with the process, so "stopped" is a
+    /// fact about the machine and not a hope.
+    /// </summary>
+    private static bool Stop(IProcessHandle tunnel)
+    {
+        try
+        {
+            if (!tunnel.HasExited)
+            {
+                tunnel.CloseInput();
+                if (!tunnel.WaitForExit(TimeSpan.FromSeconds(10)))
+                {
+                    tunnel.Kill();
+                    if (!tunnel.WaitForExit(TimeSpan.FromSeconds(5))) return false;
+                }
+            }
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        finally
+        {
+            try { tunnel.Dispose(); } catch { /* teardown must not throw */ }
+        }
+    }
+
+    /// <summary>Null when the tunnel came up; otherwise the error code to surface.</summary>
+    private static string? WaitForReady(IProcessHandle tunnel, out bool unprotected, out bool forwardingPending)
+    {
+        unprotected = false;
+        forwardingPending = false;
+        var deadline = DateTimeOffset.UtcNow + ReadyTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            // Null means the child's stdout ended: it exited without ever being
+            // ready, which is what a refused adapter looks like from here.
+            var line = tunnel.ReadLine();
+            if (line is null) return "ERR_WG_START_FAILED";
+            var trimmed = line.Trim();
+            if(ClassifyLifecycleLine(trimmed) is { } failure)return failure;
+            if (trimmed == LeakProtectionFailedLine)
+            {
+                unprotected = true;
+                continue;
+            }
+            if (trimmed == ReadyLine) return null;
+            if (trimmed == TunnelReadyLine)
+            {
+                forwardingPending = true;
+                return null;
+            }
+            if (trimmed == NoHandshakeLine) return "ERR_WG_NO_HANDSHAKE";
+        }
+        return "ERR_WG_START_FAILED";
+    }
+
+    /// <summary>
+    /// The client's arguments. The DNS server and the tunnel address come from
+    /// the payload and the shared contract rather than being repeated here.
+    /// </summary>
+    internal static string Arguments(WgParams wg, bool blockLeaks = true, bool holdOnLoss = false)
+    {
+        var arguments = new List<string>
+        {
+            "-name", TunnelStats.DefaultAdapter,
+            "-address", wg.ClientAddress,
+            "-routes", wg.AllowedIps,
+        };
+        if (!string.IsNullOrWhiteSpace(wg.Dns))
+        {
+            arguments.Add("-dns");
+            arguments.Add(wg.Dns);
+        }
+        // Only ever passed to turn it OFF. The client defaults to blocking, so
+        // a Relay that somehow forgets to pass anything still fails closed.
+        if (!blockLeaks) arguments.Add(DisableLeakBlockArgument);
+        if (holdOnLoss) arguments.Add(HoldOnLossArgument);
+        if (Environment.GetEnvironmentVariable("RELAY_LIFECYCLE_DIAGNOSTICS") == "1")
+            arguments.Add("-lifecycle-diagnostics");
+        return string.Join(' ', arguments.Select(Quote));
+    }
+
+    private static string Quote(string argument) =>
+        argument.Contains(' ') ? $"\"{argument}\"" : argument;
+}
+
+/// <summary>
+/// The real <see cref="WgTunnelSession.IProcessHost"/>: raises the elevation
+/// prompt for the tunnel process and talks to it over a private named pipe.
+///
+/// The pipe is the whole reason this is not simply a redirected child process.
+/// A process started through the elevation prompt cannot have its streams
+/// redirected — Windows' <c>runas</c> goes through ShellExecute, which has no
+/// way to hand over a handle — so the choice is a pipe or writing the client's
+/// private key to a temp file. A key on disk outlives the session, lands in
+/// backups, and is readable by anything running as that user afterwards.
+///
+/// The pipe is created before the prompt is raised and its name is the only
+/// thing on the command line, which any process on the machine can read: a name
+/// is useless to anyone who cannot open it, and the pipe allows exactly one
+/// connection and is closed the moment the tunnel stops.
+/// </summary>
+public sealed class ElevatedTunnelHost(string executablePath) : WgTunnelSession.IProcessHost
+{
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)]
+    private static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe,out uint clientProcessId);
+    /// <summary>Windows' code for "the user cancelled the elevation prompt".</summary>
+    private const int ErrorCancelled = 1223;
+
+    /// <summary>
+    /// What ShellExecute returns when the elevation broker cannot resolve the
+    /// executable's path -- notably when it sits behind a junction. The file is
+    /// perfectly readable from this process; the broker is what cannot reach it.
+    /// </summary>
+    private const int ErrorFileNotFound = 2;
+    private const int ErrorPathNotFound = 3;
+
+    /// <summary>How long to wait for the elevated child to pick up the pipe.</summary>
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(60);
+
+    public WgTunnelSession.IProcessHandle Start(string arguments)
+    {
+        var name = "linqavo-wg-" + Guid.NewGuid().ToString("N");
+        // One instance, and the elevated child is the only thing that will ever
+        // connect. In only means "the app writes"; the client's readiness comes
+        // back the other way, so this is duplex.
+        var pipe = new System.IO.Pipes.NamedPipeServerStream(
+            name,
+            System.IO.Pipes.PipeDirection.InOut,
+            maxNumberOfServerInstances: 1,
+            System.IO.Pipes.PipeTransmissionMode.Byte,
+            System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+
+        Process process;
+        try
+        {
+            var info = new ProcessStartInfo(executablePath, $"{arguments} -config-pipe {name} -parent-pid {Environment.ProcessId}")
+            {
+                UseShellExecute = true,
+                Verb = "runas", // the elevation prompt, for this one process
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+            };
+            process = Process.Start(info)
+                ?? throw new InvalidOperationException("no process was started");
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)
+        {
+            pipe.Dispose();
+            throw new WgTunnelSession.ElevationDeclined(ex);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+            when (ex.NativeErrorCode is ErrorFileNotFound or ErrorPathNotFound)
+        {
+            pipe.Dispose();
+            throw new WgTunnelSession.ElevationUnavailable(ex);
+        }
+        catch
+        {
+            pipe.Dispose();
+            throw;
+        }
+
+        try
+        {
+            // Waits for the child, and stops waiting if it dies first — an
+            // elevated process that fails immediately would otherwise leave
+            // this blocked on a connection that is never coming.
+            var connected = pipe.WaitForConnectionAsync();
+            var deadline = DateTimeOffset.UtcNow + ConnectTimeout;
+            while (!connected.Wait(TimeSpan.FromMilliseconds(250)))
+            {
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException(
+                        $"the tunnel process exited with {process.ExitCode} before connecting");
+                }
+                if (DateTimeOffset.UtcNow > deadline)
+                {
+                    throw new TimeoutException("the tunnel process never connected");
+                }
+            }
+            connected.GetAwaiter().GetResult();
+            if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle,out var clientId) || clientId!=(uint)process.Id)
+                throw new UnauthorizedAccessException("unexpected tunnel pipe client");
+        }
+        catch
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+            pipe.Dispose();
+            process.Dispose();
+            throw;
+        }
+
+        return new Handle(process, pipe);
+    }
+
+    private sealed class Handle : WgTunnelSession.IProcessHandle
+    {
+        /// <summary>How long a single read may block before the caller's own deadline is re-checked.</summary>
+        private const int ReadSliceMs = 1000;
+
+        private readonly Process _process;
+        private readonly System.IO.Pipes.NamedPipeServerStream _pipe;
+        private readonly StreamWriter _writer;
+        private readonly StreamReader _reader;
+        private Task<string?>? _pendingRead;
+
+        public Handle(Process process, System.IO.Pipes.NamedPipeServerStream pipe)
+        {
+            _process = process;
+            _pipe = pipe;
+            _writer = new StreamWriter(pipe) { AutoFlush = true, NewLine = "\n" };
+            _reader = new StreamReader(pipe);
+        }
+
+        public bool HasExited => _process.HasExited;
+
+        public void WriteLine(string line) => _writer.WriteLine(line);
+
+        /// <summary>
+        /// Reads a line, or returns empty when the child has simply not spoken
+        /// yet. The deadline in <c>WaitForReady</c> is only re-checked between
+        /// lines, so a blocking read is an unbounded one: a tunnel process that
+        /// connects the pipe and then says nothing used to park this thread
+        /// forever — while it held the session lock, which is the same lock
+        /// Disconnect and Exit take. That is how a tray menu ends up with two
+        /// dead commands and Task Manager as the only way out.
+        /// </summary>
+        public string? ReadLine()
+        {
+            _pendingRead ??= ReadControlLineAsync();
+            if (!_pendingRead.Wait(ReadSliceMs)) return string.Empty;
+            var result=_pendingRead.GetAwaiter().GetResult();
+            _pendingRead=null;
+            return result;
+        }
+        private async Task<string?> ReadControlLineAsync() {
+            var text=new System.Text.StringBuilder();var one=new char[1];
+            while(text.Length<256) {
+                if(await _reader.ReadAsync(one.AsMemory())==0)return null;
+                if(one[0]=='\n')return text.ToString().TrimEnd('\r');
+                text.Append(one[0]);
+            }
+            throw new IOException("oversized tunnel control message");
+        }
+
+        /// <summary>
+        /// Closing the pipe is how the tunnel is told to stop — and because the
+        /// pipe dies with this process too, a crash of the app stops the tunnel
+        /// just as reliably as a Disconnect does.
+        /// </summary>
+        public void CloseInput() => _pipe.Dispose();
+
+        public bool WaitForExit(TimeSpan timeout) => _process.WaitForExit((int)timeout.TotalMilliseconds);
+
+        public void Kill() => _process.Kill(entireProcessTree: true);
+
+        public void Dispose()
+        {
+            try { _pipe.Dispose(); } catch { }
+            try { _process.Dispose(); } catch { }
+        }
+    }
+}

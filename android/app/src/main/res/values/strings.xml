@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="local_network_title">Allow local network access</string>
+    <string name="local_network_body">Linqavo needs access to nearby devices to discover and pair with your computer and carry its traffic. Sharing is stopped. Allow Nearby devices in Android Settings, then return to continue.</string>
+    <string name="local_network_settings">Open Settings</string>
+    <string name="local_network_cancel">Cancel</string>
+    <string name="app_name">Linqavo</string>
+
+    <!-- Home -->
+    <string name="action_start">Share Internet</string>
+    <string name="action_stop">Stop</string>
+    <string name="status_idle">Not sharing</string>
+    <string name="status_preparing">Starting…</string>
+    <string name="status_waiting">Waiting for your PC…</string>
+    <string name="qr_content_description">Pairing QR code</string>
+    <string name="or_type_code">or enter this code on your PC</string>
+    <string name="code_unavailable">No manual code on this network — scan the QR</string>
+    <string name="traffic_gb">%1$s GB</string>
+    <string name="traffic_mb">%1$s MB</string>
+    <string name="traffic_kb">%1$s KB</string>
+    <string name="traffic_b">%1$s B</string>
+    <string name="status_reconnecting">Reconnecting…</string>
+
+    <!-- Transport modes -->
+    <string name="mode_full_desc">Shares everything your phone can reach — browsing, video calls and games.</string>
+    <string name="mode_full_unavailable">This build is missing the tunnel component, so it cannot share. Reinstall Linqavo from the releases page.</string>
+
+    <!-- Warnings (non-blocking banners) -->
+    <string name="warning_lockdown_title">“Block connections without VPN” is on</string>
+    <string name="warning_lockdown_body">That Android setting can block the phone\'s replies to local devices. Check your VPN app\'s local network access and Android VPN settings. Linqavo uses the phone\'s default route; VPN coverage depends on that app\'s policy.</string>
+    <string name="warning_lockdown_action">VPN settings</string>
+    <string name="warning_no_reply_title">Your PC is not getting an answer</string>
+    <string name="warning_no_reply_body">A device was approved, but its WireGuard tunnel has not completed a handshake. Check that both devices still share a local Wi-Fi or hotspot connection. If a VPN is active on the phone, check its local network access policy. Linqavo does not require a separate VPN or proxy.</string>
+
+    <!-- Advanced -->
+    <string name="advanced">Advanced</string>
+    <string name="advanced_version">Version</string>
+    <string name="advanced_ip">Phone address</string>
+    <string name="advanced_theme">Appearance</string>
+    <string name="theme_system">System</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_light">Light</string>
+    <string name="advanced_logs">Activity log (stays on this device)</string>
+    <string name="advanced_logs_clear">Clear</string>
+    <string name="advanced_logs_empty">No activity yet</string>
+
+    <!-- Errors (codes: docs/errors.md) -->
+    <string name="error_hotspot_off_title">No Wi-Fi or hotspot</string>
+    <string name="error_hotspot_off_body">Connect the phone to Wi-Fi, turn on its hotspot, or plug in a USB cable and turn on USB tethering, then try again.</string>
+    <string name="error_link_negotiating_title">Your cable is still connecting</string>
+    <string name="error_link_negotiating_body">A link is coming up but has no address yet — USB tethering can take a few seconds. Wait a moment and tap Try again.</string>
+    <string name="error_only_mobile_data_title">Only mobile data is available</string>
+    <string name="error_only_mobile_data_body">Your PC cannot reach the phone over mobile data. Connect the phone to Wi-Fi, turn on its hotspot, or plug in a cable and turn on USB tethering.</string>
+    <string name="error_only_vpn_title">Only your VPN is connected</string>
+    <string name="error_only_vpn_body">Only the VPN tunnel has an address; your devices also need a local connection to this phone. Connect the phone to Wi-Fi, turn on its hotspot, or connect a USB cable with USB tethering enabled.</string>
+    <string name="error_port_in_use_title">Ports are busy</string>
+    <string name="error_port_in_use_body">Another app is using the connection ports Linqavo needs. Close it, then try again.</string>
+    <string name="error_service_failed_title">Android stopped the sharing service</string>
+    <string name="error_service_failed_body">This is usually battery optimisation, or Linqavo being swiped away from recent apps. Allow Linqavo to ignore battery optimisation from the banner on the home screen, then start sharing again.</string>
+    <string name="error_hotspot_lost_title">The network dropped</string>
+    <string name="error_hotspot_lost_body">The Wi‑Fi, hotspot or USB link this phone was sharing on went away and didn\'t come back. Check it, then start sharing again.</string>
+    <string name="error_wg_start_title">The tunnel didn\'t start</string>
+    <string name="error_wg_start_body">Linqavo\'s WireGuard endpoint couldn\'t start on this phone — usually a port another app is holding. Start sharing again; if it keeps failing, close other VPN or proxy apps and try once more.</string>
+    <string name="action_retry">Try Again</string>
+    <string name="action_dismiss">Dismiss</string>
+
+    <!-- Battery exemption onboarding (ADR-0003) -->
+    <string name="battery_banner_title">Keep sharing alive</string>
+    <string name="battery_banner_body">Allow Linqavo to ignore battery optimization so sharing survives when the screen is off.</string>
+    <string name="battery_banner_allow">Allow</string>
+
+    <!-- The cable. Phrased as a question because the signal behind it is a
+         guess: BATTERY_PLUGGED_USB tells a host port from a wall charger and
+         nothing more. See UsbLink.cableToComputer. -->
+    <string name="usb_offer_title">Cable to your PC?</string>
+    <string name="usb_offer_body">Turn on USB tethering — a steady link that costs no battery and needs no Wi‑Fi.</string>
+    <string name="usb_offer_action">Turn on</string>
+    <string name="usb_offer_dismiss">Not now</string>
+    <string name="usb_carrying">Over USB</string>
+
+    <!-- Foreground-service notification -->
+    <string name="notification_channel">Sharing status</string>
+    <string name="notification_starting">Starting…</string>
+    <string name="notification_waiting">Sharing is on — waiting for your PC</string>
+    <plurals name="notification_connected">
+        <item quantity="one">Sharing with %1$d device</item>
+        <item quantity="other">Sharing with %1$d devices</item>
+    </plurals>
+    <string name="notification_error">Sharing stopped — open Linqavo for details</string>
+    <string name="notification_reconnecting">Reconnecting…</string>
+    <string name="short_code_label">Type this on your PC</string>
+    <string name="short_code_hint">Open Linqavo on your PC and enter these two digits.</string>
+    <string name="or_scan_qr">or scan the QR code</string>
+    <string name="approve_title">Allow this computer?</string>
+    <string name="approve_body">%1$s wants to share your connection.</string>
+    <string name="approve_allow">Allow</string>
+    <string name="approve_deny">Deny</string>
+    <string name="advanced_logs_share">Share report</string>
+    <string name="update_available">Version %1$s is available</string>
+    <string name="update_get">Get it</string>
+    <string name="update_manual_note">Android always asks before installing.</string>
+
+    <!-- Long-press the launcher icon -->
+    <string name="shortcut_start_short">Start Sharing</string>
+    <string name="shortcut_start_long">Start sharing the connection on this phone</string>
+
+    <!-- Quick Settings tile -->
+    <string name="tile_idle">Not sharing</string>
+    <string name="tile_starting">Starting…</string>
+    <string name="tile_waiting">Waiting for your PC</string>
+    <string name="tile_code">Code %1$s</string>
+    <string name="tile_error">Tap to try again</string>
+    <plurals name="tile_connected">
+        <item quantity="one">Sharing with %1$d device</item>
+        <item quantity="other">Sharing with %1$d devices</item>
+    </plurals>
+
+    <!-- Home screen widget -->
+    <string name="widget_description">Sharing state and the code to type on your PC.</string>
+    <string name="widget_tap_to_start">Tap to start sharing</string>
+
+    <!-- First run -->
+    <string name="onboarding_title">Keep Linqavo within reach</string>
+    <string name="onboarding_body">Two of these keep sharing running. The rest are shortcuts — add them now or any time later.</string>
+    <string name="onboarding_done">Done</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_notif_title">Let Linqavo show its status</string>
+    <string name="onboarding_notif_body">Sharing runs in a notification so Android keeps it alive and you can stop it from anywhere.</string>
+    <string name="onboarding_notif_action">Allow notifications</string>
+    <string name="onboarding_battery_title">Keep sharing alive</string>
+    <string name="onboarding_battery_body">Without this, Android can stop sharing when the screen goes off.</string>
+    <string name="onboarding_battery_action">Allow</string>
+    <string name="onboarding_tile_title">Add the Quick Settings tile</string>
+    <string name="onboarding_tile_body">Start and stop sharing from the shade, without opening anything.</string>
+    <string name="onboarding_tile_action">Add the tile</string>
+    <string name="onboarding_tile_manual">Pull down the shade, tap the pencil or + to edit, then drag Linqavo in.</string>
+    <string name="onboarding_widget_title">Add the home screen widget</string>
+    <string name="onboarding_widget_body">Shows the code to type on your PC, big enough to read across a desk.</string>
+    <string name="onboarding_widget_action">Add to home screen</string>
+    <string name="onboarding_widget_manual">Long-press the home screen, choose Widgets, then find Linqavo.</string>
+    <string name="onboarding_shortcut_title">Long-press the Linqavo icon</string>
+    <string name="onboarding_shortcut_body">Start Sharing is already there — nothing to set up.</string>
+    <string name="update_channel">Updates</string>
+    <string name="update_notice_body">Tap to open Linqavo and install it.</string>
+    <string name="approval_channel">Connection requests</string>
+    <string name="approval_title">Allow this computer?</string>
+    <string name="approval_body">%1$s wants to share your connection.</string>
+    <string name="approval_allow">Allow</string>
+    <string name="approval_deny">Deny</string>
+
+    <!-- 2.11 UX pass (docs/ux-audit.md) -->
+    <string name="approve_body_named">%1$s (%2$s) wants to share your connection.</string>
+    <string name="status_word_idle">Off</string>
+    <string name="status_word_starting">Starting</string>
+    <string name="status_word_waiting">Waiting</string>
+    <string name="status_word_connected">Connected</string>
+    <string name="status_word_reconnecting">Reconnecting</string>
+    <string name="status_word_error">Problem</string>
+    <string name="connected_title">Your PC is online through this phone</string>
+    <string name="connected_down">Download</string>
+    <string name="connected_up">Upload</string>
+    <string name="traffic_rate">%1$s/s</string>
+    <string name="connected_totals">Total: %1$s down · %2$s up</string>
+    <string name="connected_show_code">Show the pairing code</string>
+    <string name="connected_hide_code">Hide the pairing code</string>
+    <string name="preparing_hint">Looking for Wi‑Fi, a hotspot or a USB link…</string>
+    <string name="error_action_network">Open network settings</string>
+    <string name="error_tried_link">Linqavo waited about 8 seconds for a usable network first.</string>
+    <string name="error_tried_lost">Linqavo kept trying to reconnect before it stopped.</string>
+    <string name="error_tried_tunnel">Linqavo tried to start its tunnel and the phone refused.</string>
+    <string name="error_details">Technical details</string>
+    <string name="error_details_code">Code: %1$s</string>
+    <string name="onboarding_section_needed">Needed for sharing</string>
+    <string name="onboarding_section_optional">Shortcuts — optional</string>
+    <string name="advanced_section_connection">Connection</string>
+    <string name="advanced_section_diagnostics">Diagnostics</string>
+    <string name="update_check_manual">Check for updates</string>
+    <string name="update_no_source">No trusted Linqavo update source has been configured.</string>
+    <string name="enrollment_server_fingerprint">Server identity — compare the entire fingerprint on your PC:\n%1$s</string>
+    <string name="enrollment_client_fingerprint">Approve only if this ENTIRE client fingerprint matches the PC display:\n%1$s</string>
+    <string name="clients_authorized">Authorized devices</string>
+    <string name="client_generic">Device</string>
+    <string name="client_connected">Connected</string>
+    <string name="client_disabled">Disconnected by you</string>
+    <string name="client_offline">Authorized — offline</string>
+    <string name="client_authorized">Authorized — waiting to connect</string>
+    <string name="client_reconnecting">Reconnecting…</string>
+    <string name="client_unknown">Connection status unknown</string>
+    <string name="client_traffic">Received %1$s · Sent %2$s</string>
+    <string name="client_handshake">Last handshake: %1$s</string>
+    <string name="client_never">Never</string>
+    <string name="client_disconnect">Disable access</string>
+    <string name="client_reconnect">Enable access</string>
+    <string name="client_revoke">Revoke and remove</string>
+    <string name="client_limit">Maximum clients: %1$d (change while stopped)</string>
+    <string name="secure_pairing_title">Secure pairing</string>
+    <string name="client_revoke_title">Revoke device access?</string>
+    <string name="client_revoke_body">This will immediately disconnect %1$s and permanently remove its authorization. To connect again, you\'ll need to pair the device and approve its new connection.</string>
+    <string name="client_revoke_confirm">Revoke access</string>
+    <string name="client_disable_title">Disable this device?</string>
+    <string name="client_disable_body">%1$s will lose access immediately. You can enable it again later without pairing again.</string>
+    <string name="client_action_stale">This device or sharing session changed. Review the device and try again.</string>
+    <string name="client_action_failed">Could not change access for %1$s. Refresh the device status and try again.</string>
+    <string name="client_revoked_result">Authorization removed for %1$s. A new pairing and approval are required.</string>
+    <string name="client_disabled_result">Access disabled for %1$s. Authorization is preserved.</string>
+    <string name="client_enabled_result">Access enabled for %1$s. The device can reconnect.</string>
+    <string name="client_manual_endpoint">Manual pairing · %1$s · Port %2$d</string>
+    <string name="client_mode_title">Connect to Internet</string>
+    <string name="client_mode_description">Connect securely through another Linqavo device over Wi-Fi.</string>
+    <string name="client_disconnected">Disconnected</string>
+    <string name="client_connecting">Connecting…</string>
+    <string name="client_waiting_approval">Waiting for approval</string>
+    <string name="client_mode_offline">Offline</string>
+    <string name="client_access_disabled">Disabled</string>
+    <string name="client_access_revoked">Revoked</string>
+    <string name="client_mode_disconnect">Disconnect</string>
+    <string name="client_connect_action">Connect</string>
+    <string name="client_tunnel_error">Linqavo could not start or maintain the VPN. Try connecting again.</string>
+    <string name="client_vpn_revoked">Android ended the VPN. Reconnect to grant access again.</string>
+    <string name="client_vpn_denied">Allow the Android VPN request to connect.</string>
+    <string name="client_wifi_required">Connect to the sharing phone’s Wi-Fi network.</string>
+    <string name="client_identity_changed">The server identity changed. Verify a fresh QR code or compare the new fingerprint on the sharing device.</string>
+    <string name="client_pairing_denied">Pairing was denied or timed out. Check the approval prompt on the sharing device.</string>
+    <string name="client_capacity">All authorized device slots are occupied. Remove a device on the sharing phone to make room.</string>
+    <string name="client_disabled_help">Enable this device on the sharing phone to restore access.</string>
+    <string name="client_revoked_help">Access was revoked. Disconnect if needed, then connect to request a new approval.</string>
+    <string name="client_invalid">The server returned an incompatible enrollment reply.</string>
+    <string name="client_unavailable">The sharing device or its Internet connection is unavailable.</string>
+    <string name="client_server_stopped">The phone stopped sharing. Disconnect and verify a new invitation when sharing resumes.</string>
+    <string name="client_no_forwarding">The phone answered, but Internet traffic has yet to return.</string>
+    <string name="client_presence_unavailable">Traffic is flowing. Device status updates are temporarily unavailable.</string>
+    <string name="client_local_network">Allow nearby devices access to discover and connect to the sharing phone.</string>
+    <string name="client_stop_sharing">Stop the active Linqavo session before switching modes.</string>
+    <string name="client_invalid_target">Enter the phone’s IPv4 address, pairing port, and full 64-character fingerprint, or scan its QR code.</string>
+    <string name="client_vpn_conflict">Another VPN is active. Disconnect it in Android settings before connecting.</string>
+    <string name="client_vpn_settings">Open VPN settings</string>
+    <string name="client_no_servers">No sharing devices found. Scan the phone’s QR code or enter the details manually.</string>
+    <string name="client_qr_error">Could not read a current Linqavo pairing QR code from this image.</string>
+    <string name="client_camera_unavailable">Could not open the camera. Choose an image or enter the pairing details.</string>
+    <string name="client_server_name">Server %1$s</string>
+    <string name="client_vpn_address">Tunnel IP %1$s</string>
+    <string name="client_speed">Download %1$s/s · Upload %2$s/s</string>
+    <string name="client_duration">VPN time %1$s</string>
+    <string name="client_compare_key">Approve on the phone only if this full device fingerprint matches.</string>
+    <string name="client_fingerprint_help">Scan the QR code shown on the sharing phone, or enter and compare the phone’s full fingerprint. The two-digit code only helps you find the phone.</string>
+    <string name="client_searching">Searching…</string>
+    <string name="client_discover">Find nearby devices</string>
+    <string name="client_qr_camera">Scan QR with camera</string>
+    <string name="client_qr_file">Choose QR image</string>
+    <string name="client_offer">%1$s · Code %2$s</string>
+    <string name="client_host">Phone IPv4 address</string>
+    <string name="client_port">Pairing port</string>
+    <string name="client_fingerprint">Server fingerprint</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_settings">Settings</string>
+    <string name="show_peer_details">Show device details</string>
+    <string name="hide_peer_details">Hide device details</string>
+    <string name="trusted_title">Trusted devices</string>
+    <string name="trusted_empty">Devices you approve for sharing will appear here.</string>
+    <string name="trusted_forget">Forget device</string>
+    <string name="trusted_forget_body">This device will need approval the next time sharing starts. To stop its current access, revoke it on the home screen.</string>
+    <string name="trusted_storage_error">Could not save the change. Try again.</string>
+    <string name="trusted_allow">Allow and remember</string>
+    <string name="trusted_approval_hint">Allowing this device saves it to your trusted devices.</string>
+</resources>

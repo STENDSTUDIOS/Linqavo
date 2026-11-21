@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="local_network_title">اجازهٔ دسترسی به شبکهٔ محلی</string>
+    <string name="local_network_body">لینکاوو برای یافتن رایانه، جفت‌سازی و انتقال ترافیک آن به دسترسی به دستگاه‌های نزدیک نیاز دارد. اشتراک‌گذاری متوقف است. در تنظیمات اندروید دسترسی به دستگاه‌های نزدیک را مجاز کنید و برای ادامه بازگردید.</string>
+    <string name="local_network_settings">باز کردن تنظیمات</string>
+    <string name="local_network_cancel">لغو</string>
+    <string name="app_name">لینکاوو</string>
+
+    <!-- Home -->
+    <string name="action_start">اشتراک‌گذاری اینترنت</string>
+    <string name="action_stop">توقف</string>
+    <string name="status_idle">اشتراک‌گذاری خاموش است</string>
+    <string name="status_preparing">در حال شروع…</string>
+    <string name="status_waiting">در انتظار رایانه شما…</string>
+    <string name="qr_content_description">کد QR جفت‌سازی</string>
+    <string name="or_type_code">یا این کد را در رایانه وارد کنید</string>
+    <string name="code_unavailable">کد دستی در این شبکه نیست — کیو‌آر را اسکن کنید</string>
+    <string name="traffic_gb">%1$s گیگابایت</string>
+    <string name="traffic_mb">%1$s مگابایت</string>
+    <string name="traffic_kb">%1$s کیلوبایت</string>
+    <string name="traffic_b">%1$s بایت</string>
+    <string name="status_reconnecting">در حال اتصال مجدد…</string>
+
+    <!-- Transport modes -->
+    <string name="mode_full_desc">هر چیزی که گوشی به آن دسترسی دارد به اشتراک گذاشته می‌شود — مرور، تماس تصویری و بازی.</string>
+    <string name="mode_full_unavailable">این نسخه بخش تونل را ندارد و نمی‌تواند چیزی به اشتراک بگذارد. لینکاوو را دوباره از صفحهٔ انتشارها نصب کنید.</string>
+
+    <!-- Warnings (non-blocking banners) -->
+    <string name="warning_lockdown_title">«Block connections without VPN» روشن است</string>
+    <string name="warning_lockdown_body">این تنظیم اندروید ممکن است پاسخ‌های گوشی به دستگاه‌های محلی را مسدود کند. دسترسی شبکهٔ محلی در برنامهٔ وی‌پی‌ان و تنظیمات VPN اندروید را بررسی کنید. لینکاوو از مسیر پیش‌فرض گوشی استفاده می‌کند؛ پوشش وی‌پی‌ان به سیاست همان برنامه بستگی دارد.</string>
+    <string name="warning_lockdown_action">تنظیمات VPN</string>
+    <string name="warning_no_reply_title">کامپیوترتان جوابی نمی‌گیرد</string>
+    <string name="warning_no_reply_body">یک دستگاه تأیید شده، اما تونل WireGuard آن هنوز دست‌دادن را کامل نکرده است. بررسی کنید هر دو دستگاه همچنان روی یک وای‌فای یا هات‌اسپات محلی باشند. اگر وی‌پی‌ان روی گوشی فعال است، سیاست دسترسی شبکهٔ محلی آن را بررسی کنید. لینکاوو به وی‌پی‌ان یا پروکسی جداگانه نیاز ندارد.</string>
+
+    <!-- Advanced -->
+    <string name="advanced">پیشرفته</string>
+    <string name="advanced_version">نسخه</string>
+    <string name="advanced_ip">نشانی گوشی</string>
+    <string name="advanced_theme">ظاهر</string>
+    <string name="theme_system">سیستم</string>
+    <string name="theme_dark">تیره</string>
+    <string name="theme_light">روشن</string>
+    <string name="advanced_logs">گزارش فعالیت (روی همین دستگاه می‌ماند)</string>
+    <string name="advanced_logs_clear">پاک‌کردن</string>
+    <string name="advanced_logs_empty">هنوز فعالیتی نیست</string>
+
+    <!-- Errors (codes: docs/errors.md) -->
+    <string name="error_hotspot_off_title">وای‌فای یا هات‌اسپات نیست</string>
+    <string name="error_hotspot_off_body">گوشی را به وای‌فای وصل کنید، هات‌اسپات را روشن کنید، یا کابل USB را بزنید و اشتراک اینترنت با USB را روشن کنید، سپس دوباره تلاش کنید.</string>
+    <string name="error_link_negotiating_title">کابل هنوز در حال اتصال است</string>
+    <string name="error_link_negotiating_body">یک اتصال دارد بالا می‌آید ولی هنوز نشانی نگرفته — اشتراک اینترنت با USB چند ثانیه طول می‌کشد. کمی صبر کنید و «تلاش دوباره» را بزنید.</string>
+    <string name="error_only_mobile_data_title">فقط دیتای همراه در دسترس است</string>
+    <string name="error_only_mobile_data_body">کامپیوترتان از راه دیتای همراه به گوشی نمی‌رسد. گوشی را به وای‌فای وصل کنید، هات‌اسپات را روشن کنید، یا کابل را بزنید و اشتراک اینترنت با USB را روشن کنید.</string>
+    <string name="error_only_vpn_title">فقط وی‌پی‌ان وصل است</string>
+    <string name="error_only_vpn_body">فقط تونل وی‌پی‌ان نشانی دارد؛ دستگاه‌ها به یک اتصال محلی به گوشی هم نیاز دارند. گوشی را به وای‌فای وصل کنید، هات‌اسپات را روشن کنید، یا کابل USB را با اشتراک اینترنت USB فعال وصل کنید.</string>
+    <string name="error_port_in_use_title">پورت‌ها در اشغال‌اند</string>
+    <string name="error_port_in_use_body">برنامه دیگری از پورت‌های موردنیاز لینکاوو استفاده می‌کند. آن را ببندید و دوباره تلاش کنید.</string>
+    <string name="error_service_failed_title">اندروید سرویس اشتراک‌گذاری را متوقف کرد</string>
+    <string name="error_service_failed_body">معمولاً به‌خاطر بهینه‌سازی باتری است، یا بسته‌شدن لینکاوو از فهرست برنامه‌های اخیر. از بنر صفحهٔ اصلی به لینکاوو اجازه دهید بهینه‌سازی باتری را نادیده بگیرد، بعد دوباره اشتراک‌گذاری را شروع کنید.</string>
+    <string name="error_hotspot_lost_title">شبکه قطع شد</string>
+    <string name="error_hotspot_lost_body">وای‌فای، هات‌اسپات یا اتصال USB که گوشی رویش اشتراک می‌گذاشت قطع شد و برنگشت. بررسی‌اش کنید و دوباره اشتراک‌گذاری را شروع کنید.</string>
+    <string name="error_wg_start_title">تونل شروع نشد</string>
+    <string name="error_wg_start_body">نقطهٔ پایانی WireGuard لینکاوو روی این گوشی شروع نشد — معمولاً چون برنامهٔ دیگری پورت موردنیاز را گرفته. دوباره اشتراک‌گذاری را شروع کنید؛ اگر باز هم نشد، برنامه‌های وی‌پی‌ان یا پروکسی دیگر را ببندید و یک بار دیگر امتحان کنید.</string>
+    <string name="action_retry">تلاش دوباره</string>
+    <string name="action_dismiss">بستن</string>
+
+    <!-- Battery exemption onboarding (ADR-0003) -->
+    <string name="battery_banner_title">اشتراک‌گذاری را زنده نگه دارید</string>
+    <string name="battery_banner_body">به لینکاوو اجازه دهید بهینه‌سازی باتری را نادیده بگیرد تا با خاموش‌شدن صفحه، اشتراک‌گذاری قطع نشود.</string>
+    <string name="battery_banner_allow">اجازه دادن</string>
+
+    <string name="usb_offer_title">کابل به کامپیوتر وصل است؟</string>
+    <string name="usb_offer_body">اشتراک اینترنت با USB را روشن کنید — اتصالی پایدار که باتری مصرف نمی‌کند و به وای‌فای نیاز ندارد.</string>
+    <string name="usb_offer_action">روشن کردن</string>
+    <string name="usb_offer_dismiss">الان نه</string>
+    <string name="usb_carrying">از طریق USB</string>
+
+    <!-- Foreground-service notification -->
+    <string name="notification_channel">وضعیت اشتراک‌گذاری</string>
+    <string name="notification_starting">در حال شروع…</string>
+    <string name="notification_waiting">اشتراک‌گذاری روشن است — در انتظار رایانه شما</string>
+    <plurals name="notification_connected">
+        <item quantity="one">در حال اشتراک با %1$d دستگاه</item>
+        <item quantity="other">در حال اشتراک با %1$d دستگاه</item>
+    </plurals>
+    <string name="notification_error">اشتراک‌گذاری متوقف شد — برای جزئیات، لینکاوو را باز کنید</string>
+    <string name="notification_reconnecting">در حال اتصال مجدد…</string>
+    <string name="short_code_label">این را در رایانه وارد کنید</string>
+    <string name="short_code_hint">«لینکاوو» را روی رایانه باز کنید و این دو رقم را وارد کنید.</string>
+    <string name="or_scan_qr">یا کیو‌آر را اسکن کنید</string>
+    <string name="approve_title">به این رایانه اجازه می‌دهید؟</string>
+    <string name="approve_body">%1$s می‌خواهد از اتصال شما استفاده کند.</string>
+    <string name="approve_allow">اجازه بده</string>
+    <string name="approve_deny">رد کن</string>
+    <string name="advanced_logs_share">ارسال گزارش</string>
+    <string name="update_available">نسخهٔ %1$s موجود است</string>
+    <string name="update_get">دریافت</string>
+    <string name="update_manual_note">اندروید همیشه قبل از نصب می‌پرسد.</string>
+
+    <!-- نگه‌داشتن آیکون برنامه -->
+    <string name="shortcut_start_short">شروع اشتراک‌گذاری</string>
+    <string name="shortcut_start_long">اشتراک‌گذاری اتصال این گوشی را شروع کن</string>
+
+    <!-- کاشی تنظیمات سریع -->
+    <string name="tile_idle">اشتراک‌گذاری خاموش</string>
+    <string name="tile_starting">در حال شروع…</string>
+    <string name="tile_waiting">در انتظار رایانه شما</string>
+    <string name="tile_code">کد %1$s</string>
+    <string name="tile_error">برای تلاش دوباره بزنید</string>
+    <plurals name="tile_connected">
+        <item quantity="one">در حال اشتراک با %1$d دستگاه</item>
+        <item quantity="other">در حال اشتراک با %1$d دستگاه</item>
+    </plurals>
+
+    <!-- ویجت صفحه اصلی -->
+    <string name="widget_description">وضعیت اشتراک‌گذاری و کدی که باید در رایانه وارد کنید.</string>
+    <string name="widget_tap_to_start">برای شروع بزنید</string>
+
+    <!-- اجرای اول -->
+    <string name="onboarding_title">لینکاوو را در دسترس نگه دار</string>
+    <string name="onboarding_body">دو مورد از این‌ها اشتراک‌گذاری را روشن نگه می‌دارند. بقیه میان‌بُرند — حالا یا هر وقت بعداً اضافه‌شان کن.</string>
+    <string name="onboarding_done">تمام</string>
+    <string name="onboarding_skip">رد کن</string>
+    <string name="onboarding_notif_title">اجازه بده لینکاوو وضعیتش را نشان دهد</string>
+    <string name="onboarding_notif_body">اشتراک‌گذاری در یک اعلان اجرا می‌شود تا اندروید آن را زنده نگه دارد و بتوانی از هرجا متوقفش کنی.</string>
+    <string name="onboarding_notif_action">اجازه دادن به اعلان‌ها</string>
+    <string name="onboarding_battery_title">اشتراک‌گذاری را زنده نگه دار</string>
+    <string name="onboarding_battery_body">بدون این، اندروید ممکن است با خاموش‌شدن صفحه اشتراک‌گذاری را قطع کند.</string>
+    <string name="onboarding_battery_action">اجازه دادن</string>
+    <string name="onboarding_tile_title">کاشی تنظیمات سریع را اضافه کن</string>
+    <string name="onboarding_tile_body">شروع و توقف اشتراک‌گذاری از بالای صفحه، بدون باز کردن چیزی.</string>
+    <string name="onboarding_tile_action">افزودن کاشی</string>
+    <string name="onboarding_tile_manual">نوار بالا را پایین بکش، مداد یا + را بزن، بعد لینکاوو را به داخل بکش.</string>
+    <string name="onboarding_widget_title">ویجت صفحه اصلی را اضافه کن</string>
+    <string name="onboarding_widget_body">کدی که باید در رایانه وارد کنی را نشان می‌دهد، به‌اندازه‌ای بزرگ که از آن‌طرف میز خوانده شود.</string>
+    <string name="onboarding_widget_action">افزودن به صفحه اصلی</string>
+    <string name="onboarding_widget_manual">روی صفحه اصلی نگه دار، ویجت‌ها را انتخاب کن و لینکاوو را پیدا کن.</string>
+    <string name="onboarding_shortcut_title">آیکون لینکاوو را نگه دار</string>
+    <string name="onboarding_shortcut_body">«شروع اشتراک‌گذاری» همان‌جا هست — چیزی برای تنظیم نیست.</string>
+    <string name="update_channel">به‌روزرسانی‌ها</string>
+    <string name="update_notice_body">برای باز کردن لینکاوو و نصب آن بزنید.</string>
+    <string name="approval_channel">درخواست‌های اتصال</string>
+    <string name="approval_title">به این کامپیوتر اجازه می‌دهید؟</string>
+    <string name="approval_body">%1$s می‌خواهد از اینترنت شما استفاده کند.</string>
+    <string name="approval_allow">اجازه بده</string>
+    <string name="approval_deny">رد کن</string>
+
+    <!-- 2.11 UX pass (docs/ux-audit.md) -->
+    <string name="approve_body_named">%1$s (%2$s) می‌خواهد از اتصال شما استفاده کند.</string>
+    <string name="status_word_idle">خاموش</string>
+    <string name="status_word_starting">در حال شروع</string>
+    <string name="status_word_waiting">در انتظار</string>
+    <string name="status_word_connected">متصل</string>
+    <string name="status_word_reconnecting">اتصال دوباره</string>
+    <string name="status_word_error">مشکل</string>
+    <string name="connected_title">کامپیوترتان از طریق این گوشی آنلاین است</string>
+    <string name="connected_down">دریافت</string>
+    <string name="connected_up">ارسال</string>
+    <string name="traffic_rate">%1$s در ثانیه</string>
+    <string name="connected_totals">مجموع: %1$s دریافت · %2$s ارسال</string>
+    <string name="connected_show_code">نمایش کد جفت‌سازی</string>
+    <string name="connected_hide_code">پنهان کردن کد جفت‌سازی</string>
+    <string name="preparing_hint">در جست‌وجوی وای‌فای، هات‌اسپات یا اتصال USB…</string>
+    <string name="error_action_network">باز کردن تنظیمات شبکه</string>
+    <string name="error_tried_link">لینکاوو اول حدود ۸ ثانیه منتظر یک شبکهٔ قابل‌استفاده ماند.</string>
+    <string name="error_tried_lost">لینکاوو پیش از توقف چند بار برای اتصال دوباره تلاش کرد.</string>
+    <string name="error_tried_tunnel">لینکاوو تلاش کرد تونلش را شروع کند و گوشی اجازه نداد.</string>
+    <string name="error_details">جزئیات فنی</string>
+    <string name="error_details_code">کد: %1$s</string>
+    <string name="onboarding_section_needed">لازم برای اشتراک‌گذاری</string>
+    <string name="onboarding_section_optional">میان‌بُرها — اختیاری</string>
+    <string name="advanced_section_connection">اتصال</string>
+    <string name="advanced_section_diagnostics">عیب‌یابی</string>
+    <string name="update_check_manual">بررسی به‌روزرسانی لینکاوو</string>
+    <string name="update_no_source">هنوز منبع قابل اعتماد برای به‌روزرسانی لینکاوو تنظیم نشده است.</string>
+    <string name="enrollment_server_fingerprint">هویت سرور — تمام اثر انگشت را در رایانه مقایسه کنید:\n%1$s</string>
+    <string name="enrollment_client_fingerprint">فقط اگر تمام اثر انگشت مشتری با نمایشگر رایانه مطابقت دارد تأیید کنید:\n%1$s</string>
+    <string name="clients_authorized">دستگاه‌های مجاز</string>
+    <string name="client_generic">دستگاه</string>
+    <string name="client_connected">متصل</string>
+    <string name="client_disabled">توسط شما قطع شده</string>
+    <string name="client_offline">تأییدشده — آفلاین</string>
+    <string name="client_authorized">تأییدشده — در انتظار اتصال</string>
+    <string name="client_reconnecting">در حال اتصال مجدد…</string>
+    <string name="client_unknown">وضعیت اتصال نامشخص</string>
+    <string name="client_traffic">دریافت %1$s · ارسال %2$s</string>
+    <string name="client_handshake">آخرین دست‌دهی: %1$s</string>
+    <string name="client_never">هرگز</string>
+    <string name="client_disconnect">غیرفعال‌کردن دسترسی</string>
+    <string name="client_reconnect">فعال‌کردن دسترسی</string>
+    <string name="client_revoke">لغو دسترسی و حذف</string>
+    <string name="client_limit">حداکثر مشتریان: %1$d (تغییر هنگام توقف)</string>
+    <string name="secure_pairing_title">اتصال امن</string>
+    <string name="client_revoke_title">دسترسی دستگاه لغو شود؟</string>
+    <string name="client_revoke_body">این کار بلافاصله اتصال %1$s را قطع و مجوز آن را برای همیشه حذف می‌کند. برای اتصال دوباره، باید دستگاه را جفت‌سازی و اتصال جدید آن را تأیید کنید.</string>
+    <string name="client_revoke_confirm">لغو دسترسی</string>
+    <string name="client_disable_title">این دستگاه غیرفعال شود؟</string>
+    <string name="client_disable_body">دسترسی %1$s بلافاصله قطع می‌شود. می‌توانید بعداً بدون جفت‌سازی دوباره آن را فعال کنید.</string>
+    <string name="client_action_stale">دستگاه یا نشست اشتراک‌گذاری تغییر کرده است. وضعیت دستگاه را بررسی و دوباره تلاش کنید.</string>
+    <string name="client_action_failed">تغییر دسترسی %1$s انجام نشد. وضعیت دستگاه را بررسی و دوباره تلاش کنید.</string>
+    <string name="client_revoked_result">مجوز %1$s حذف شد. جفت‌سازی و تأیید جدید لازم است.</string>
+    <string name="client_disabled_result">دسترسی %1$s غیرفعال شد. مجوز دستگاه حفظ شده است.</string>
+    <string name="client_enabled_result">دسترسی %1$s فعال شد. دستگاه می‌تواند دوباره متصل شود.</string>
+    <string name="client_manual_endpoint">جفت‌سازی دستی · %1$s · درگاه %2$d</string>
+    <string name="client_mode_title">اتصال به اینترنت</string>
+    <string name="client_mode_description">از طریق وای‌فای و یک دستگاه دیگر دارای Linqavo به‌صورت امن متصل شوید.</string>
+    <string name="client_disconnected">قطع‌شده</string>
+    <string name="client_connecting">در حال اتصال…</string>
+    <string name="client_waiting_approval">در انتظار تأیید</string>
+    <string name="client_mode_offline">آفلاین</string>
+    <string name="client_access_disabled">غیرفعال</string>
+    <string name="client_access_revoked">لغوشده</string>
+    <string name="client_mode_disconnect">قطع اتصال</string>
+    <string name="client_connect_action">اتصال</string>
+    <string name="client_tunnel_error">راه‌اندازی یا ادامهٔ کار وی‌پی‌ان ممکن نشد. دوباره متصل شوید.</string>
+    <string name="client_vpn_revoked">اندروید وی‌پی‌ان را پایان داد. برای اعطای دوبارهٔ مجوز متصل شوید.</string>
+    <string name="client_vpn_denied">برای اتصال، درخواست وی‌پی‌ان اندروید را تأیید کنید.</string>
+    <string name="client_wifi_required">به شبکهٔ وای‌فای تلفن اشتراک‌گذار متصل شوید.</string>
+    <string name="client_identity_changed">هویت سرور تغییر کرده است. کد QR جدید را بررسی کنید یا اثر انگشت جدید را روی دستگاه اشتراک‌گذار مقایسه کنید.</string>
+    <string name="client_pairing_denied">جفت‌سازی رد شد یا زمان آن پایان یافت. درخواست تأیید را روی دستگاه اشتراک‌گذار بررسی کنید.</string>
+    <string name="client_capacity">ظرفیت دستگاه‌های مجاز تکمیل است. برای آزاد کردن ظرفیت، یک دستگاه را روی تلفن اشتراک‌گذار حذف کنید.</string>
+    <string name="client_disabled_help">برای بازگرداندن دسترسی، این دستگاه را روی تلفن اشتراک‌گذار فعال کنید.</string>
+    <string name="client_revoked_help">دسترسی لغو شد. در صورت نیاز اتصال را قطع کنید و برای درخواست تأیید جدید دوباره متصل شوید.</string>
+    <string name="client_invalid">پاسخ ثبت‌نام سرور سازگار نبود.</string>
+    <string name="client_unavailable">دستگاه اشتراک‌گذار یا اتصال اینترنت آن در دسترس نیست.</string>
+    <string name="client_server_stopped">تلفن اشتراک‌گذاری را متوقف کرد. اتصال را قطع کنید و پس از شروع دوباره، دعوت‌نامهٔ جدید را بررسی کنید.</string>
+    <string name="client_no_forwarding">تلفن پاسخ داد، اما هنوز ترافیکی از اینترنت دریافت نشده است.</string>
+    <string name="client_presence_unavailable">ترافیک در جریان است. به‌روزرسانی وضعیت دستگاه موقتاً در دسترس نیست.</string>
+    <string name="client_local_network">برای پیدا کردن و اتصال به تلفن اشتراک‌گذار، اجازهٔ دسترسی به دستگاه‌های نزدیک را بدهید.</string>
+    <string name="client_stop_sharing">پیش از تغییر حالت، نشست فعال لینکاوو را متوقف کنید.</string>
+    <string name="client_invalid_target">نشانی IPv4 تلفن، درگاه جفت‌سازی و اثر انگشت کامل ۶۴ نویسه‌ای را وارد کنید یا کد QR آن را اسکن کنید.</string>
+    <string name="client_vpn_conflict">وی‌پی‌ان دیگری فعال است. پیش از اتصال، آن را در تنظیمات اندروید قطع کنید.</string>
+    <string name="client_vpn_settings">باز کردن تنظیمات وی‌پی‌ان</string>
+    <string name="client_no_servers">دستگاه اشتراک‌گذاری پیدا نشد. کد QR تلفن را اسکن کنید یا اطلاعات را دستی وارد کنید.</string>
+    <string name="client_qr_error">خواندن کد QR جفت‌سازی فعلی Linqavo از این تصویر ممکن نشد.</string>
+    <string name="client_camera_unavailable">باز کردن دوربین ممکن نشد. یک تصویر انتخاب کنید یا اطلاعات جفت‌سازی را وارد کنید.</string>
+    <string name="client_server_name">سرور %1$s</string>
+    <string name="client_vpn_address">نشانی تونل %1$s</string>
+    <string name="client_speed">دریافت %1$s/ثانیه · ارسال %2$s/ثانیه</string>
+    <string name="client_duration">مدت وی‌پی‌ان %1$s</string>
+    <string name="client_compare_key">فقط اگر این اثر انگشت کامل دستگاه مطابقت دارد، روی تلفن تأیید کنید.</string>
+    <string name="client_fingerprint_help">کد QR روی تلفن اشتراک‌گذار را اسکن کنید، یا اثر انگشت کامل تلفن را وارد و مقایسه کنید. کد دو رقمی فقط برای یافتن تلفن است.</string>
+    <string name="client_searching">در حال جست‌وجو…</string>
+    <string name="client_discover">یافتن دستگاه‌های نزدیک</string>
+    <string name="client_qr_camera">اسکن QR با دوربین</string>
+    <string name="client_qr_file">انتخاب تصویر QR</string>
+    <string name="client_offer">%1$s · کد %2$s</string>
+    <string name="client_host">نشانی IPv4 تلفن</string>
+    <string name="client_port">درگاه جفت‌سازی</string>
+    <string name="client_fingerprint">اثر انگشت سرور</string>
+    <string name="nav_home">خانه</string>
+    <string name="nav_settings">تنظیمات</string>
+    <string name="show_peer_details">نمایش جزئیات دستگاه</string>
+    <string name="hide_peer_details">پنهان کردن جزئیات دستگاه</string>
+    <string name="trusted_title">دستگاه‌های مورد اعتماد</string>
+    <string name="trusted_empty">دستگاه‌هایی که برای اشتراک اینترنت تأیید کنید اینجا نمایش داده می‌شوند.</string>
+    <string name="trusted_forget">فراموش کردن دستگاه</string>
+    <string name="trusted_forget_body">بار بعد که اشتراک اینترنت شروع شود، این دستگاه به تأیید نیاز دارد. برای قطع دسترسی فعلی، در صفحهٔ اصلی دسترسی آن را لغو کنید.</string>
+    <string name="trusted_storage_error">تغییر ذخیره نشد. دوباره تلاش کنید.</string>
+    <string name="trusted_allow">اجازه و به‌خاطرسپاری</string>
+    <string name="trusted_approval_hint">با اجازه دادن، این دستگاه در فهرست دستگاه‌های مورد اعتماد ذخیره می‌شود.</string>
+</resources>

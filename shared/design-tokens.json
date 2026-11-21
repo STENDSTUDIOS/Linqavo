@@ -1,0 +1,80 @@
+{
+  "$contrast": "Every text colour clears 4.5:1 on the worst ground it can sit on: dark text over the raised panel (12% white over backgroundGradientTop), light text over backgroundGradientBottom. Asserted by DesignTokensTest (Android). docs/ux-audit.md has the method.",
+  "$comment": "Single source of truth for the Liquid Glass design language (§3). Both apps map these tokens to platform constructs (Compose theme objects / WinUI resources). Colors are sRGB hex or rgba(). Do not fork values per platform — change them here.",
+  "color": {
+    "dark": {
+      "backgroundBase": "#10151D",
+      "sessionSurface": "#101F38",
+      "settingsSurface": "#182231",
+      "backgroundGradientTop": "#152030",
+      "backgroundGradientBottom": "#0C1017",
+      "glassFill": "rgba(255,255,255,0.06)",
+      "glassFillRaised": "rgba(255,255,255,0.09)",
+      "glassStroke": "rgba(255,255,255,0.12)",
+      "glassStrokeHighlight": "rgba(255,255,255,0.22)",
+      "glassInnerGlow": "rgba(255,255,255,0.04)",
+      "textPrimary": "rgba(255,255,255,0.96)",
+      "textSecondary": "rgba(255,255,255,0.62)",
+      "textTertiary": "rgba(255,255,255,0.60)",
+      "accent": "#6AA8FF",
+      "accentPressed": "#518CE0",
+      "accentSubtle": "rgba(106,168,255,0.16)",
+      "error": "#FF918A",
+      "errorSubtle": "rgba(255,145,138,0.16)",
+      "warning": "#E0A458"
+    },
+    "light": {
+      "$comment": "Android only. The Windows popover is dark by design -- it floats over an arbitrary wallpaper and has to read as one object regardless of the desktop theme -- so it implements none of this. Kept here rather than under a platform key because Android is asserted against these names.",
+      "backgroundBase": "#EEF1F5",
+      "sessionSurface": "#E2ECFA",
+      "settingsSurface": "#FFFFFF",
+      "backgroundGradientTop": "#F7F9FC",
+      "backgroundGradientBottom": "#E4E8EE",
+      "glassFill": "rgba(255,255,255,0.55)",
+      "glassFillRaised": "rgba(255,255,255,0.72)",
+      "glassStroke": "rgba(0,0,0,0.08)",
+      "glassStrokeHighlight": "rgba(255,255,255,0.85)",
+      "glassInnerGlow": "rgba(255,255,255,0.35)",
+      "textPrimary": "rgba(12,14,18,0.94)",
+      "textSecondary": "rgba(12,14,18,0.66)",
+      "textTertiary": "rgba(12,14,18,0.62)",
+      "accent": "#235897",
+      "accentPressed": "#18437A",
+      "accentSubtle": "rgba(35,88,151,0.16)",
+      "error": "#AD3833",
+      "errorSubtle": "rgba(173,56,51,0.16)",
+      "warning": "#8F5C0E"
+    }
+  },
+  "radius": { "xs": 8, "sm": 12, "md": 16, "lg": 24, "pill": 999 },
+  "blur": { "subtle": 12, "panel": 24, "overlay": 40 },
+  "spacing": { "xxs": 4, "xs": 8, "sm": 12, "md": 16, "lg": 24, "xl": 32, "xxl": 48 },
+  "motion": {
+    "duration": { "instant": 100, "fast": 180, "base": 260, "gentle": 420 },
+    "easing": {
+      "standard": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+      "decelerate": "cubic-bezier(0.0, 0.0, 0.2, 1)"
+    },
+    "spring": {
+      "default": { "stiffness": 380, "damping": 32 },
+      "settle": { "stiffness": 220, "damping": 26 }
+    }
+  },
+  "typography": {
+    "family": {
+      "windows": "Segoe UI Variable",
+      "android": "system-default",
+      "sharedFallback": "Inter",
+      "persian": "Vazirmatn",
+      "code": "Cascadia Mono"
+    },
+    "scale": {
+      "display": { "size": 34, "lineHeight": 40, "weight": 600 },
+      "title": { "size": 22, "lineHeight": 28, "weight": 600 },
+      "body": { "size": 15, "lineHeight": 22, "weight": 400 },
+      "bodySmall": { "size": 14, "lineHeight": 21, "weight": 400, "$comment": "Explanatory paragraphs: warnings, hints, onboarding. Caption (12) is for labels, never for a paragraph -- at 12/16 Persian sits too tight and a long paragraph is hard work at any scale (docs/ux-audit.md P-29)." },
+      "caption": { "size": 12, "lineHeight": 16, "weight": 400 },
+      "pairingCode": { "size": 28, "lineHeight": 36, "weight": 500, "features": ["tabular-numbers", "letter-spacing:0.12em"] }
+    }
+  }
+}

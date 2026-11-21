@@ -1,0 +1,5 @@
+<Project>
+  <Target Name="ValidateForkVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(Version)' != '$(LinqavoVersion)'" Text="Version must match shared/LinqavoVersion.props." />
+  </Target>
+</Project>
