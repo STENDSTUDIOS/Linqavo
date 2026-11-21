@@ -94,8 +94,8 @@
     <string name="approve_deny">رد کن</string>
     <string name="advanced_logs_share">ارسال گزارش</string>
     <string name="update_available">نسخهٔ %1$s موجود است</string>
-    <string name="update_get">دریافت</string>
-    <string name="update_manual_note">اندروید همیشه قبل از نصب می‌پرسد.</string>
+    <string name="update_get">به‌روزرسانی</string>
+    <string name="update_manual_note">برای تأیید نصب، فایل APK دانلودشده را باز کنید.</string>
 
     <!-- نگه‌داشتن آیکون برنامه -->
     <string name="shortcut_start_short">شروع اشتراک‌گذاری</string>
@@ -172,6 +172,9 @@
     <string name="advanced_section_connection">اتصال</string>
     <string name="advanced_section_diagnostics">عیب‌یابی</string>
     <string name="update_check_manual">بررسی به‌روزرسانی لینکاوو</string>
+    <string name="update_current">نسخهٔ شما به‌روز است.</string>
+    <string name="update_failed">بررسی نسخهٔ سازگار ممکن نشد. بعداً دوباره تلاش کنید.</string>
+    <string name="update_browser_failed">مرورگر برای دانلود باز نشد.</string>
     <string name="update_no_source">هنوز منبع قابل اعتماد برای به‌روزرسانی لینکاوو تنظیم نشده است.</string>
     <string name="enrollment_server_fingerprint">هویت سرور — تمام اثر انگشت را در رایانه مقایسه کنید:\n%1$s</string>
     <string name="enrollment_client_fingerprint">فقط اگر تمام اثر انگشت مشتری با نمایشگر رایانه مطابقت دارد تأیید کنید:\n%1$s</string>

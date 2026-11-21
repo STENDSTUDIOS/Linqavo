@@ -149,6 +149,7 @@ fun HomeScreen(
                 maximumClients, onSetMaximumClients, updateAvailable, onGetUpdate,
             )
         } else {
+            if (updateAvailable != null) UpdateBanner(updateAvailable, onGetUpdate)
             Header(state)
             if (connected) PeerList(peers, managementSession, pendingPeerActions, onPeerAction)
 
@@ -1046,7 +1047,7 @@ private fun BatteryBanner(onAllow: () -> Unit) {
  * happen.
  */
 @Composable
-private fun UpdateBanner(version: String, onGet: () -> Unit) {
+internal fun UpdateBanner(version: String, onGet: () -> Unit) {
     val glass = LocalGlass.current
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1117,8 +1118,8 @@ internal fun SettingsContent(
             // the truth about this APK rather than about the source tree.
             LabeledValue(stringResource(R.string.advanced_version), installedVersion())
 
-            QuietAction(stringResource(R.string.update_check_manual), onGetUpdate)
             if (updateAvailable != null) UpdateBanner(updateAvailable, onGetUpdate)
+            else QuietAction(stringResource(R.string.update_check_manual), onGetUpdate)
 
             // Local-only activity log
             Column {

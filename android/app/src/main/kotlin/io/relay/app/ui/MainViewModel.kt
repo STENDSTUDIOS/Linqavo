@@ -14,9 +14,13 @@ import io.relay.app.service.InstallSource
 import io.relay.app.service.LocalLog
 import io.relay.app.service.Settings
 import io.relay.app.service.SharingService
-import io.relay.app.core.UpdateCheck
+import androidx.lifecycle.viewModelScope
+import android.os.Build
+import android.os.SystemClock
+import android.widget.Toast
+import io.relay.app.R
+import io.relay.app.core.GitHubRelease
 import io.relay.app.service.UpdateFetcher
-import io.relay.app.service.UpdateNotice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -34,35 +38,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val warnings: StateFlow<Set<WarningCode>> = ConnectionRepository.warnings
     val logs: StateFlow<List<LocalLog.Entry>> = LocalLog.entries
 
-    /**
-     * The newer release, once a check has found one. Null covers both "this is
-     * the current build" and "the check could not be made" -- someone offline
-     * should not be told anything is wrong with their app.
-     */
-    private val _updateAvailable = MutableStateFlow<String?>(null)
-    val updateAvailable: StateFlow<String?> = _updateAvailable.asStateFlow()
+    private val _offer = MutableStateFlow<GitHubRelease.Offer?>(null)
+    internal val availableRelease = _offer.asStateFlow()
+    private var lastCheck: Long? = null
+    private var checking = false
+    private var reportResult = false
 
-    // Retained for callers from older UI versions; deliberately performs no I/O.
-    fun checkForUpdate(currentVersion: String) { }
-
-    fun dismissUpdate() {
-        _updateAvailable.value = null
-    }
-
-    /** True while an update is being fetched, so the button cannot be tapped twice. */
-    private val _updating = MutableStateFlow(false)
-    val updating: StateFlow<Boolean> = _updating
-
-    /**
-     * Downloads the release APK, verifies it against the release's published
-     * checksums, and opens the system installer.
-     *
-     * The "Get it" button used to call nothing at all: HomeScreen took an
-     * onGetUpdate lambda, MainActivity never passed one, and the default was
-     * empty — so the banner offered an update it had no way to deliver.
-     */
-    fun getUpdate() {
-        android.widget.Toast.makeText(getApplication(), io.relay.app.R.string.update_no_source, android.widget.Toast.LENGTH_LONG).show()
+    fun checkForUpdate(manual: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!manual && lastCheck?.let { now - it < 6 * 60 * 60_000L } == true) return
+        if (manual) reportResult = true
+        if (checking) return
+        checking = true
+        lastCheck = now
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            try {
+                val version = requireNotNull(app.packageManager.getPackageInfo(app.packageName, 0).versionName)
+                _offer.value = UpdateFetcher.latest(version, "arm64-v8a" in Build.SUPPORTED_ABIS)
+                if (_offer.value == null && reportResult) Toast.makeText(app, R.string.update_current, Toast.LENGTH_SHORT).show()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _offer.value = null
+                if (reportResult) Toast.makeText(app, R.string.update_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                checking = false
+                reportResult = false
+            }
+        }
     }
 
     // --- the cable ----------------------------------------------------------

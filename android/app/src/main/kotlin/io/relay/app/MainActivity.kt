@@ -182,13 +182,23 @@ class MainActivity : ComponentActivity() {
                                 viewModel.stopSharing()
                                 localPermissionDenied = true
                             }
+                            viewModel.checkForUpdate()
                             viewModel.refreshBatteryExempt()
                             viewModel.watchCable()
                         }
                     }
 
                     val pendingClient by ConnectionRepository.clientGate.pending.collectAsState()
-                    val updateAvailable by viewModel.updateAvailable.collectAsState()
+                    val update by viewModel.availableRelease.collectAsState()
+                    val updateAction: () -> Unit = {
+                        val release = update
+                        if (release == null) viewModel.checkForUpdate(manual = true)
+                        else try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.download)))
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            Toast.makeText(this@MainActivity, R.string.update_browser_failed, Toast.LENGTH_LONG).show()
+                        }
+                    }
                     val cable by viewModel.cable.collectAsState()
 
                     // The launcher shortcut. Honoured only from Idle: arriving
@@ -220,7 +230,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (clientMode && role != RelayRole.Role.Sharing) {
-                        ClientScreen(themeMode, viewModel::setThemeMode) { clientMode = false }
+                        ClientScreen(themeMode, viewModel::setThemeMode, update?.version, updateAction) { clientMode = false }
                         return@RelayBackground
                     }
 
@@ -239,10 +249,7 @@ class MainActivity : ComponentActivity() {
                         onDismissWarning = viewModel::dismissWarning,
                         onSetTheme = viewModel::setThemeMode,
                         onClearLogs = viewModel::clearLogs,
-                        // The banner used to offer an update it had no way to
-                        // deliver: HomeScreen took this lambda, nothing passed
-                        // one, and the default was empty.
-                        onGetUpdate = viewModel::getUpdate,
+                        onGetUpdate = updateAction,
                         peers = peers,
                         maximumClients = maximumClients,
                         onSetMaximumClients = viewModel::setMaximumClients,
@@ -266,7 +273,7 @@ class MainActivity : ComponentActivity() {
                             )
                             startActivity(DiagnosticReport.shareIntent(this@MainActivity, report))
                         },
-                        updateAvailable = updateAvailable,
+                        updateAvailable = update?.version,
                         pendingClient = pendingClient?.address,
                         pendingClientName = pendingClient?.name,
                         onOpenNetworkSettings = ::openNetworkSettings,

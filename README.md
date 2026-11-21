@@ -3,8 +3,8 @@
 <p align="center"><img src="docs/assets/linqavo-cover.svg" width="100%" alt="Linqavo — your phone’s internet, shared with Android and Windows"></p>
 
 <p align="center">
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Download_Android-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Download Android ARM64"></a>
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-windows-x64.zip"><img src="https://img.shields.io/badge/Download_Windows-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Download Windows x64"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Download_Android-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Download Android ARM64"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe"><img src="https://img.shields.io/badge/Download_Windows-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Download Windows x64"></a>
 </p>
 
 <p align="center">Android 8+ · Windows 10 / 11 · WireGuard · Up to 3 clients<br>
@@ -62,12 +62,12 @@ Windows route holding has limits during helper crashes and connection setup. Phy
 
 | Platform | Package |
 | --- | --- |
-| **Android ARM64** | [Download APK](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-android-arm64-debug.apk). Both roles are included. Signed with a development key. |
-| **Windows x64** | [Download ZIP](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-windows-x64.zip). Extract the complete folder and open **Linqavo.exe**. Keep its helper and DLLs together. The app is unsigned. |
+| **Android ARM64** | [Download APK](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk). Both roles are included. Signed with a development key. |
+| **Windows x64** | [Download Windows Setup](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe). Exit the old portable copy and run Setup. Open Linqavo from Start. To remove it, use Windows Settings → Apps. The installer is unsigned. |
 
-[Release notes](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.1.0) · [SHA-256 checksums](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/SHA256SUMS.txt)
+[Release notes](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.2.0) · [SHA-256 checksums](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/SHA256SUMS.txt)
 
-Updates are manual. Windows may request elevation to create its network adapter. The interface supports English and Persian. Android offers dark, light, and system themes.
+Starting with 1.2, the foreground app checks GitHub for a newer stable version. Choose **Update** to open the official download, then run Setup or open the APK. Settings also offers a manual check. Install this first upgrade from the links above. Windows may request elevation to create its network adapter. The interface supports English and Persian. Android offers dark, light, and system themes.
 
 ## Validation
 

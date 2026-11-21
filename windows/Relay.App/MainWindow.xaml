@@ -27,6 +27,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="1.2*"/><ColumnDefinition x:Name="RightColumn" Width="*"/></Grid.ColumnDefinitions>
                 <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <StackPanel x:Name="DeviceColumn" Padding="24" Spacing="20">
+                    <Button x:Name="DashboardUpdate" Visibility="Collapsed" Click="OnReleaseAction"/>
                     <TextBlock x:Name="DevicesTitle" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"/>
                     <Border x:Name="SelectedDevice" Visibility="Collapsed" CornerRadius="12"
                             Background="{StaticResource AccentFaintBrush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" Padding="16">
@@ -300,6 +301,8 @@
                             <TextBlock x:Name="AdvancedVersionValue" Grid.Column="1" HorizontalAlignment="Right" IsTextSelectionEnabled="True"
                                        Style="{StaticResource MonoText}" FlowDirection="LeftToRight" TextWrapping="Wrap"/>
                         </Grid>
+                        <Button x:Name="ReleaseAction" Click="OnReleaseAction"/>
+                        <TextBlock x:Name="ReleaseMessage" Visibility="Collapsed" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
                         <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
                             <TextBlock x:Name="AdvancedAddressLabel" VerticalAlignment="Center" Foreground="{StaticResource LabelTertiary}"/>
                             <TextBlock x:Name="AdvancedAddressValue" Grid.Column="1" HorizontalAlignment="Right" IsTextSelectionEnabled="True"

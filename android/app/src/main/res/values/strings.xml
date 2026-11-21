@@ -97,8 +97,8 @@
     <string name="approve_deny">Deny</string>
     <string name="advanced_logs_share">Share report</string>
     <string name="update_available">Version %1$s is available</string>
-    <string name="update_get">Get it</string>
-    <string name="update_manual_note">Android always asks before installing.</string>
+    <string name="update_get">Update</string>
+    <string name="update_manual_note">Open the downloaded APK to confirm installation.</string>
 
     <!-- Long-press the launcher icon -->
     <string name="shortcut_start_short">Start Sharing</string>
@@ -175,6 +175,9 @@
     <string name="advanced_section_connection">Connection</string>
     <string name="advanced_section_diagnostics">Diagnostics</string>
     <string name="update_check_manual">Check for updates</string>
+    <string name="update_current">You have the latest version.</string>
+    <string name="update_failed">Could not check for a compatible update. Try again later.</string>
+    <string name="update_browser_failed">Could not open a browser for the download.</string>
     <string name="update_no_source">No trusted Linqavo update source has been configured.</string>
     <string name="enrollment_server_fingerprint">Server identity — compare the entire fingerprint on your PC:\n%1$s</string>
     <string name="enrollment_client_fingerprint">Approve only if this ENTIRE client fingerprint matches the PC display:\n%1$s</string>

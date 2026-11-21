@@ -201,7 +201,7 @@ class VisualConsistencyTest {
 
     @Test fun clientSettingsReturnToTheSameRole() {
         compose.setContent { RelayTheme("dark") { RelayBackground {
-            ClientScreen("dark", {}, {})
+            ClientScreen("dark", {}) {}
         } } }
         val context = compose.activity
         compose.onNodeWithText(context.getString(R.string.nav_settings)).performClick()

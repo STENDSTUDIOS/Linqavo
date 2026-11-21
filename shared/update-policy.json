@@ -1,8 +1,10 @@
 {
   "product": "Linqavo",
-  "automaticChecks": false,
+  "automaticChecks": "foreground release discovery, at most once per six hours per running app; manual retry is available",
   "automaticDownloads": false,
   "unattendedInstallation": false,
+  "discovery": "https://api.github.com/repos/STENDSTUDIOS/Linqavo/releases/latest",
+  "delivery": "user opens the matching official GitHub release asset in the system browser",
   "trustedChannel": null,
   "requiredBeforeChannelActivation": [
     "explicit HTTPS origin allowlist without redirects or fallback",

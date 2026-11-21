@@ -27,8 +27,9 @@ AppVersion={#AppVersion}
 VersionInfoVersion={#ForkNumericVersion}
 VersionInfoProductVersion={#ForkNumericVersion}
 VersionInfoProductTextVersion={#AppVersion}
-AppPublisher=Linqavo maintainers
-AppPublisherURL=
+AppPublisher=STEND STUDIOS
+AppPublisherURL=https://github.com/STENDSTUDIOS/Linqavo
+AppUpdatesURL=https://github.com/STENDSTUDIOS/Linqavo/releases
 DefaultDirName={autopf}\Linqavo
 DisableProgramGroupPage=yes
 ; Per-user install: no admin prompt, and the app only ever touches HKCU anyway.
@@ -65,7 +66,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startup"; Description: "Start Linqavo when I sign in"; GroupDescription: "Additional options"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,BUILD-INFO.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Replace obsolete fork shortcuts on an in-place upgrade. The original Relay
 ; installation has its own GUID and different shortcut names.
@@ -91,7 +92,7 @@ Name: "{autodesktop}\Linqavo"; Filename: "{app}\Linqavo.exe"; IconFilename: "{ap
 ; argument, so the installer checkbox and the switch in Advanced are one setting
 ; rather than two that can disagree. uninsdeletevalue so uninstalling does not
 ; leave Windows trying to start something that is gone.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Linqavo"; ValueData: """{app}\Linqavo.exe"" --tray"; Flags: uninsdeletevalue; Tasks: startup; Check: not RegValueExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RelayFork')
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Linqavo"; ValueData: """{app}\Linqavo.exe"" --tray"; Flags: uninsdeletevalue; Tasks: startup; Check: CreateStartupEntry
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RelayFork"; ValueData: """{app}\Linqavo.exe"" --tray"; Flags: uninsdeletevalue; Check: LegacyRunEntry('RelayFork', '--tray')
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RelayForkProxyRecovery"; ValueData: """{app}\Linqavo.exe"" --restore-proxy"; Check: LegacyRunEntry('RelayForkProxyRecovery', '--restore-proxy')
 
@@ -118,6 +119,11 @@ Type: files; Name: "{localappdata}\Linqavo\startup-error.log"
 Type: files; Name: "{localappdata}\RelayFork\startup-error.log"
 
 [Code]
+function CreateStartupEntry(): Boolean;
+begin
+  Result := not RegValueExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RelayFork');
+end;
+
 function LegacyRunEntry(ValueName, Argument: String): Boolean;
 var
   Existing: String;

@@ -223,6 +223,7 @@ public sealed partial class MainWindow : Window
     public void ShowDashboard()
     {
         _shown = true;
+        _ = CheckReleaseAsync(false);
         UpdateSearchMotion();
         UpdateProbing();
         if (!_positioned)
@@ -265,6 +266,62 @@ public sealed partial class MainWindow : Window
         var rates = _controller.StateName == "Connected" && !_controller.Reconnecting && reason is null
             ? $"{StatDownRate.Text}   {StatUpRate.Text}" : string.Empty;
         _mini.Update(StatusChipText.Text, detail, rates, StatusDot.Fill);
+    }
+
+    private GitHubRelease? _release;
+    private long? _lastCheck;
+    private bool _checkingRelease;
+    private bool _showCheckResult;
+
+    public void ShowUpdateSettings()
+    {
+        ShowDashboard();
+        SetSettings(true);
+        _ = CheckReleaseAsync(true);
+    }
+
+    private async Task CheckReleaseAsync(bool manual)
+    {
+        var now = Environment.TickCount64;
+        if (!manual && _lastCheck.HasValue && now - _lastCheck.Value < TimeSpan.FromHours(6).TotalMilliseconds) return;
+        _showCheckResult |= manual;
+        if (_checkingRelease) return;
+        _lastCheck = now;
+        _checkingRelease = true;
+        ReleaseAction.IsEnabled = false;
+        try
+        {
+            _release = await GitHubRelease.LatestAsync(AppVersion.Current);
+            ReleaseMessage.Text = Strings.Get("UpdateCurrent");
+        }
+        catch (Exception)
+        {
+            _release = null;
+            ReleaseMessage.Text = Strings.Get("UpdateFailed");
+        }
+        finally
+        {
+            ReleaseAction.IsEnabled = true;
+            _checkingRelease = false;
+            ReleaseMessage.Visibility = Show(_showCheckResult && _release is null);
+            _showCheckResult = false;
+            DashboardUpdate.Visibility = Show(_release is not null);
+            ReleaseAction.Content = _release is null ? Strings.Get("UpdateManual") : Strings.Format("UpdateTo", _release.Version);
+            DashboardUpdate.Content = ReleaseAction.Content;
+        }
+    }
+
+    private async void OnReleaseAction(object sender, RoutedEventArgs e)
+    {
+        if (_release is null) { await CheckReleaseAsync(true); return; }
+        try
+        {
+            if (await Windows.System.Launcher.LaunchUriAsync(_release.Download)) return;
+        }
+        catch (Exception) { /* Report browser failure in the same window. */ }
+        SetSettings(true);
+        ReleaseMessage.Text = Strings.Get("UpdateBrowserFailed");
+        ReleaseMessage.Visibility = Visibility.Visible;
     }
 
     private void OnHome(object sender, RoutedEventArgs e) => SetSettings(false);
@@ -475,6 +532,7 @@ public sealed partial class MainWindow : Window
         ErrorDismissButton.Content = Strings.Get("Dismiss");
         AdvancedVersionLabel.Text = Strings.Get("AdvancedVersion");
         AdvancedVersionValue.Text = AppVersion.Current;
+        ReleaseAction.Content = Strings.Get("UpdateManual");
         AdvancedAddressLabel.Text = Strings.Get("AdvancedAddress");
         AdvancedLogsLabel.Text = Strings.Get("AdvancedLogs");
         AdvancedLeakLabel.Text = Strings.Get("AdvancedLeakBlock");

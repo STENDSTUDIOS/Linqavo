@@ -1,6 +1,6 @@
-# Compilar Linqavo 1.1.0
+# Compilar Linqavo
 
-El código de la aplicación publicado corresponde a la revisión de desarrollo `4dd4b54ecfe78022fb771db25e17878e23a3a270`. La rama pública comienza con una copia del código de esa revisión. Las dependencias están declaradas en Gradle, los proyectos .NET y `wg/go.mod`.
+Selecciona la etiqueta de la versión que quieras compilar. Las dependencias están declaradas en Gradle, los proyectos .NET y `wg/go.mod`.
 
 ## Android
 
@@ -27,6 +27,12 @@ Pop-Location
 ```
 
 Añade a esa carpeta la biblioteca amd64 de Wintun 0.14.1 y su licencia. El SHA-256 del ZIP de Wintun utilizado es `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51`. Conserva los archivos publicados por .NET y WinUI junto al ejecutable. [Distribución original de Wintun](https://www.wintun.net/builds/wintun-0.14.1.zip)
+
+Para crear el instalador, ejecuta Inno Setup 6 en Windows con el directorio de publicación completo y la versión de `shared/LinqavoVersion.props`. Por ejemplo, para la 1.2.0:
+
+```powershell
+iscc "/DAppVersion=1.2.0" "/DAppPlatform=x64" "/DSourceDir=$((Resolve-Path out/windows-x64).Path)" windows/installer/relay.iss
+```
 
 ## Pruebas del transporte
 

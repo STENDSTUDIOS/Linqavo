@@ -3,8 +3,8 @@
 <p align="center"><img src="docs/assets/linqavo-cover.svg" width="100%" alt="Linqavo — comparte Internet con Android y Windows"></p>
 
 <p align="center">
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Descargar_Android-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Descargar Android"></a>
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-windows-x64.zip"><img src="https://img.shields.io/badge/Descargar_Windows-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Descargar Windows"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Descargar_Android-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Descargar Android"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe"><img src="https://img.shields.io/badge/Descargar_Windows-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Descargar Windows"></a>
 </p>
 
 <p align="center">Android 8+ · Windows 10 / 11 · WireGuard · Hasta 3 clientes</p>
@@ -61,12 +61,12 @@ Mantener la ruta en Windows tiene límites si falla el auxiliar o durante el est
 
 | Plataforma | Paquete |
 | --- | --- |
-| **Android ARM64** | [Descargar APK](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-android-arm64-debug.apk). Incluye ambos roles y está firmado con clave de desarrollo. |
-| **Windows x64** | [Descargar ZIP](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/Linqavo-1.1.0-windows-x64.zip). Extrae la carpeta completa y abre **Linqavo.exe**. Conserva el auxiliar y las DLL juntos. La aplicación carece de firma de editor. |
+| **Android ARM64** | [Descargar APK](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk). Incluye ambos roles y está firmado con clave de desarrollo. |
+| **Windows x64** | [Descargar instalador](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe). Cierra la copia portátil anterior y ejecuta el instalador. Abre Linqavo desde Inicio. Para desinstalarlo, usa Configuración → Aplicaciones. El instalador carece de firma de editor. |
 
-[Notas de la versión](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.1.0) · [Sumas SHA-256](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.1.0/SHA256SUMS.txt)
+[Notas de la versión](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.2.0) · [Sumas SHA-256](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/SHA256SUMS.txt)
 
-Las actualizaciones son manuales. Windows puede solicitar elevación para crear el adaptador. La interfaz ofrece inglés y persa. Android incluye temas oscuro, claro y del sistema.
+Desde la 1.2, la app en primer plano consulta si hay una versión estable más reciente en GitHub. Pulsa **Actualizar** para descargarla y abre el instalador o el APK. También puedes buscar actualizaciones desde Ajustes. Usa los enlaces de arriba para este primer cambio de versión. Windows puede solicitar elevación para crear el adaptador. La interfaz ofrece inglés y persa. Android incluye temas oscuro, claro y del sistema.
 
 ## Validación
 

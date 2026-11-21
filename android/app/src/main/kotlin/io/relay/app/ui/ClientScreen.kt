@@ -71,7 +71,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 @Composable
-internal fun ClientScreen(themeMode: String, setTheme: (String) -> Unit, onShareMode: () -> Unit) {
+internal fun ClientScreen(themeMode: String, setTheme: (String) -> Unit, updateVersion: String? = null,
+    onUpdate: () -> Unit = {}, onShareMode: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val saved = remember { ClientIdentity.lastTarget(context) }
@@ -191,6 +192,7 @@ internal fun ClientScreen(themeMode: String, setTheme: (String) -> Unit, onShare
         else if (!active && pending == null) onShareMode()
     }
     RelayPages(settingsOpen, { settingsOpen = it }) {
+        if (updateVersion != null) UpdateBanner(updateVersion, onUpdate)
         if (settingsOpen) {
             SessionHeading(stringResource(R.string.nav_settings))
             SettingsCard(R.string.advanced_theme) {
@@ -201,6 +203,7 @@ internal fun ClientScreen(themeMode: String, setTheme: (String) -> Unit, onShare
             }
             }
             TrustedDevicesCard()
+            if (updateVersion == null) TextButton(onClick = onUpdate) { Text(stringResource(R.string.update_check_manual)) }
         } else {
             Surface(color = io.relay.app.ui.theme.LocalGlass.current.sessionSurface,
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {

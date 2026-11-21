@@ -172,8 +172,7 @@ public partial class App : Application
                 _trayMenu = new TrayMenuWindow(
                     () => _window?.ShowDashboard(),
                     () => _ = DisconnectFromTrayAsync(),
-                    () => _tray?.ShowNotification(Strings.Get("UpdateManual"), Strings.Get("UpdateNoSource"),
-                        H.NotifyIcon.Core.NotificationIcon.Info),
+                    () => _window?.ShowUpdateSettings(),
                     () => _ = ExitFromTrayAsync());
                 _trayMenu.Closed += (_, _) => _trayMenu = null;
             }
@@ -200,7 +199,6 @@ public partial class App : Application
         // traffic wants.
         _tray.ForceCreate(enablesEfficiencyMode: false);
 
-        // Updates are exclusively manual; no startup loop or pending installer hook.
 
         var previousState = AppController.Instance.StateName;
         AppController.Instance.StateChanged += () =>
