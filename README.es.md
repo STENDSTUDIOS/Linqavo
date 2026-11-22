@@ -3,15 +3,32 @@
 <p align="center"><img src="docs/assets/linqavo-cover.svg" width="100%" alt="Linqavo — comparte Internet con Android y Windows"></p>
 
 <p align="center">
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Descargar_Android-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Descargar Android"></a>
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe"><img src="https://img.shields.io/badge/Descargar_Windows-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Descargar Windows"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Descargar_Android_APK-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Descargar Android"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe"><img src="https://img.shields.io/badge/Descargar_Windows_Setup-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Descargar Windows"></a>
 </p>
 
-<p align="center">Android 8+ · Windows 10 / 11 · WireGuard · Hasta 3 clientes</p>
+<p align="center">Android 8+ · Windows 10 / 11 · WireGuard · Hasta 3 clientes<br>
+<a href="#instalar-linqavo-120">Instalar la 1.2.0</a> · <a href="#conectar">Conectar</a> · <a href="#lo-que-añade-linqavo">Funciones</a> · <a href="#seguridad-y-confianza">Seguridad</a></p>
 
 Comparte la conexión de un teléfono Android con tu **PC Windows, una tablet u otro teléfono Android**. Usa la misma Wi-Fi o el punto de acceso del teléfono. Windows también puede usar el enlace local de anclaje USB.
 
 **Una app Android, dos roles.** Elige Share Internet en el teléfono que comparte y Connect to Internet en otro Android. Cada cliente tiene su propia conexión WireGuard y su identidad guardada.
+
+## Instalar Linqavo 1.2.0
+
+**Windows 10 u 11 (x64)** · [Descargar el instalador de Windows (.exe)](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe)
+
+Ejecuta el instalador y abre **Linqavo** desde Inicio. Para desinstalarlo, ve a Configuración → Aplicaciones. El instalador se distribuye sin firma de editor, por lo que Windows puede mostrar un aviso de editor desconocido. Windows también puede pedir permisos de administrador al crear el adaptador de red.
+
+**Android 8 o posterior (ARM64)** · [Descargar la app de Android (.apk)](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk)
+
+Abre el APK y confirma la instalación. Con la misma app puedes compartir la conexión de tu teléfono o conectar otro dispositivo Android. La interfaz está disponible en inglés y persa. En Android puedes elegir el tema oscuro, claro o del sistema.
+
+**¿Ya usas la 1.1.0?** Descarga la 1.2.0 manualmente esta vez. En Windows, sal de la versión portátil desde la bandeja del sistema antes de ejecutar el instalador. En Android, abre el APK sobre la instalación existente. Conserva el identificador de la app y el certificado de desarrollo.
+
+**A partir de la 1.2.0**, Linqavo consulta GitHub en primer plano para detectar versiones estables más recientes. Pulsa **Update** (Actualizar) para abrir la descarga oficial en el navegador. Después, ejecuta el instalador o abre el APK. También puedes buscar actualizaciones desde Ajustes con **Check for updates**.
+
+[Notas de la versión](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.2.0) · [Sumas SHA-256](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/SHA256SUMS.txt)
 
 ## Conectar
 
@@ -57,20 +74,11 @@ Mantener la ruta en Windows tiene límites si falla el auxiliar o durante el est
 
 [Emparejamiento](shared/enrollment-v2.md) · [Política de reenvío](shared/forwarding-policy.json) · [Cliente Android](shared/android-client.md)
 
-## Descargar y usar
-
-| Plataforma | Paquete |
-| --- | --- |
-| **Android ARM64** | [Descargar APK](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk). Incluye ambos roles y está firmado con clave de desarrollo. |
-| **Windows x64** | [Descargar instalador](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe). Cierra la copia portátil anterior y ejecuta el instalador. Abre Linqavo desde Inicio. Para desinstalarlo, usa Configuración → Aplicaciones. El instalador carece de firma de editor. |
-
-[Notas de la versión](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.2.0) · [Sumas SHA-256](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/SHA256SUMS.txt)
-
-Desde la 1.2, la app en primer plano consulta si hay una versión estable más reciente en GitHub. Pulsa **Actualizar** para descargarla y abre el instalador o el APK. También puedes buscar actualizaciones desde Ajustes. Usa los enlaces de arriba para este primer cambio de versión. Windows puede solicitar elevación para crear el adaptador. La interfaz ofrece inglés y persa. Android incluye temas oscuro, claro y del sistema.
-
 ## Validación
 
-Las pruebas físicas anteriores confirmaron un S25 Ultra compartiendo simultáneamente con una Tab A11+ y un portátil Windows. En 1.1.0 se comprobó en emulador la reconexión de confianza tras reiniciar Compartir. Siguen pendientes la aceptación física de esta versión, tres clientes simultáneos, la protección de Windows ante cierres abruptos y las fugas DNS/IPv6.
+En la 1.2.0 pasaron **255 pruebas de Windows y 192 pruebas de Android en la JVM**. Android Lint informó de cero errores y 25 advertencias. En un entorno limpio de Windows se ejecutó el instalador dos veces, se comprobó la entrada en Aplicaciones instaladas y el acceso desde Inicio, se verificaron los 452 archivos instalados y se probó la desinstalación. [Prueba del instalador](https://github.com/STENDSTUDIOS/Linqavo/actions/runs/44964452817)
+
+En pruebas físicas anteriores, un Galaxy S25 Ultra compartió Internet simultáneamente con una Galaxy Tab A11+ y un portátil Windows. Siguen pendientes la actualización y la conexión en equipos físicos con la 1.2.0, tres clientes simultáneos, la protección de Windows ante cierres abruptos y las pruebas físicas de fugas de DNS e IPv6.
 
 ## Desarrollado con IA
 

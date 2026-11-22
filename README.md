@@ -3,16 +3,32 @@
 <p align="center"><img src="docs/assets/linqavo-cover.svg" width="100%" alt="Linqavo — your phone’s internet, shared with Android and Windows"></p>
 
 <p align="center">
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Download_Android-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Download Android ARM64"></a>
-<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe"><img src="https://img.shields.io/badge/Download_Windows-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Download Windows x64"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk"><img src="https://img.shields.io/badge/Download_Android_APK-ARM64-67A6FF?style=for-the-badge&amp;logo=android&amp;logoColor=white&amp;labelColor=182231" alt="Download Android ARM64"></a>
+<a href="https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe"><img src="https://img.shields.io/badge/Download_Windows_Setup-x64-67A6FF?style=for-the-badge&amp;labelColor=182231" alt="Download Windows x64"></a>
 </p>
 
 <p align="center">Android 8+ · Windows 10 / 11 · WireGuard · Up to 3 clients<br>
-<a href="#get-connected">Get connected</a> · <a href="#what-linqavo-adds">Features</a> · <a href="#security-and-trust">Security</a> · <a href="docs/BUILD.md">Build from source</a></p>
+<a href="#install-linqavo-120">Install 1.2.0</a> · <a href="#get-connected">Get connected</a> · <a href="#what-linqavo-adds">Features</a> · <a href="#security-and-trust">Security</a> · <a href="docs/BUILD.md">Build from source</a></p>
 
 Share an Android phone’s internet with your **Windows PC, Android tablet, or another Android phone**. Connect over your local Wi-Fi or the phone’s hotspot. Windows can also use USB tethering as the local link.
 
 **One Android app, two roles.** Share Internet on the phone. Connect to Internet on another Android device. Each client gets its own encrypted WireGuard connection and saved identity.
+
+## Install Linqavo 1.2.0
+
+**Windows 10 or 11 (x64)** · [Download Windows Setup (.exe)](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe)
+
+Run Setup, then open **Linqavo** from Start. You can uninstall it under Windows Settings → Apps. Setup is unsigned, so Windows may display an unknown-publisher warning. Windows may also ask for administrator permission when creating the network adapter.
+
+**Android 8 or later (ARM64)** · [Download the Android app (.apk)](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk)
+
+Open the APK and confirm installation. The same app lets you share your phone’s internet or connect another Android device. The interface supports English and Persian, with dark, light, and system themes on Android.
+
+**Already on 1.1.0?** Download 1.2.0 manually this once. On Windows, exit the portable copy from the tray before running Setup. On Android, open the APK over your existing installation. It uses the same application ID and development signing certificate.
+
+**From 1.2.0 onward**, Linqavo checks GitHub for newer stable releases while the app is in the foreground. Select **Update** to open the official download in your browser, then run Setup or open the APK. You can also choose **Check for updates** in Settings.
+
+[Release notes](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.2.0) · [SHA-256 checksums](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/SHA256SUMS.txt)
 
 ## Get connected
 
@@ -58,20 +74,11 @@ Windows route holding has limits during helper crashes and connection setup. Phy
 
 [Enrollment contract](shared/enrollment-v2.md) · [Forwarding policy](shared/forwarding-policy.json) · [Android VPN behavior](shared/android-client.md)
 
-## Download and use
-
-| Platform | Package |
-| --- | --- |
-| **Android ARM64** | [Download APK](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-1.2.0-android-arm64-debug.apk). Both roles are included. Signed with a development key. |
-| **Windows x64** | [Download Windows Setup](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/Linqavo-Setup-x64-1.2.0.exe). Exit the old portable copy and run Setup. Open Linqavo from Start. To remove it, use Windows Settings → Apps. The installer is unsigned. |
-
-[Release notes](https://github.com/STENDSTUDIOS/Linqavo/releases/tag/v1.2.0) · [SHA-256 checksums](https://github.com/STENDSTUDIOS/Linqavo/releases/download/v1.2.0/SHA256SUMS.txt)
-
-Starting with 1.2, the foreground app checks GitHub for a newer stable version. Choose **Update** to open the official download, then run Setup or open the APK. Settings also offers a manual check. Install this first upgrade from the links above. Windows may request elevation to create its network adapter. The interface supports English and Persian. Android offers dark, light, and system themes.
-
 ## Validation
 
-Earlier physical testing confirmed a Galaxy S25 Ultra sharing simultaneously with a Galaxy Tab A11+ and a Windows laptop. For 1.1.0, emulator testing verified trusted-client reconnection after restarting sharing. Physical acceptance of this release, three simultaneous clients, crash-safe Windows protection, and DNS/IPv6 leak verification remain open.
+For 1.2.0, **255 Windows tests and 192 Android JVM tests passed**. Android lint reported zero errors and 25 warnings. A clean Windows runner installed Setup twice, checked the Installed apps entry and Start shortcut, verified all 452 installed files, and ran the uninstaller. [Windows installation test](https://github.com/STENDSTUDIOS/Linqavo/actions/runs/44964452817)
+
+Earlier physical testing confirmed a Galaxy S25 Ultra sharing with a Galaxy Tab A11+ and a Windows laptop at the same time. Physical upgrade and connection tests for 1.2.0, three simultaneous clients, crash-safe Windows protection, and physical DNS/IPv6 leak checks remain open.
 
 ## Built with AI
 
